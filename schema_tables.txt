@@ -1,0 +1,13 @@
+| table_name       | table_type |
+|------------------|------------|
+| authors          | BASE TABLE |
+| copies           | BASE TABLE |
+| editions         | BASE TABLE |
+| locations        | BASE TABLE |
+| notes            | BASE TABLE |
+| reading_sessions | BASE TABLE |
+| tags             | BASE TABLE |
+| work_authors     | BASE TABLE |
+| work_relations   | BASE TABLE |
+| work_tags        | BASE TABLE |
+| works            | BASE TABLE |

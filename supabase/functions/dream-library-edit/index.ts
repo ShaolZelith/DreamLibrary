@@ -42,25 +42,6 @@ function hasValidWorkStatuses(
   );
 }
 
-async function optionalRows(
-  supabase: ReturnType<typeof createClient>,
-  table: string,
-  column: string,
-  values: string[],
-) {
-  if (!values.length) return { rows: [], error: null };
-
-  const { data, error } = await supabase.from(table).select("*").in(column, values);
-  if (
-    error &&
-    isRecord(error) &&
-    (error.code === "PGRST205" || error.code === "42703")
-  ) {
-    return { rows: [], error: null };
-  }
-  return { rows: data || [], error };
-}
-
 interface WorkAuthorInput {
   id?: string;
   name: string;
@@ -236,12 +217,10 @@ Deno.serve(async (req) => {
         authorsByWork.set(link.work_id, workAuthors);
       }
 
-      const { rows: workTagLinks, error: workTagError } = await optionalRows(
-        supabase,
-        "work_tags",
-        "work_id",
-        workIds,
-      );
+      const { data: workTagLinks, error: workTagError } = await supabase
+        .from("work_tags")
+        .select("work_id, tag_id")
+        .in("work_id", workIds);
       if (workTagError) {
         return replyDatabaseError(
           "works_list",
@@ -249,28 +228,12 @@ Deno.serve(async (req) => {
           workTagError,
         );
       }
-      const { rows: directTags, error: directTagsError } = await optionalRows(
-        supabase,
-        "tags",
-        "work_id",
-        workIds,
-      );
-      if (directTagsError) {
-        return replyDatabaseError(
-          "works_list",
-          "Impossible de charger les tags des œuvres",
-          directTagsError,
-        );
-      }
       const tagIds = [...new Set(workTagLinks.flatMap((link) =>
         typeof link.tag_id === "string" ? [link.tag_id] : []
       ))];
-      const { rows: linkedTags, error: linkedTagsError } = await optionalRows(
-        supabase,
-        "tags",
-        "id",
-        tagIds,
-      );
+      const { data: linkedTags, error: linkedTagsError } = tagIds.length
+        ? await supabase.from("tags").select("id, name, category").in("id", tagIds)
+        : { data: [], error: null };
       if (linkedTagsError) {
         return replyDatabaseError(
           "works_list",
@@ -279,19 +242,15 @@ Deno.serve(async (req) => {
         );
       }
       const tagsByWork = new Map<string, Record<string, unknown>[]>();
-      for (const work of works) {
-        if (Array.isArray(work.tags)) {
-          tagsByWork.set(work.id, work.tags);
-        }
-      }
       for (const link of workTagLinks) {
-        const tag = linkedTags.find((item) => item.id === link.tag_id) || link;
-        if (!tag) continue;
+        const tag = linkedTags.find((item) => item.id === link.tag_id);
+        if (!tag) {
+          return reply({
+            error: "Un tag associé à une œuvre est introuvable",
+            code: "INCONSISTENT_WORK_TAG",
+          }, 500);
+        }
         tagsByWork.set(link.work_id, [...(tagsByWork.get(link.work_id) || []), tag]);
-      }
-      for (const tag of directTags) {
-        if (typeof tag.work_id !== "string") continue;
-        tagsByWork.set(tag.work_id, [...(tagsByWork.get(tag.work_id) || []), tag]);
       }
 
       return reply({
@@ -343,87 +302,68 @@ Deno.serve(async (req) => {
           : [];
       });
 
-      const loadOptional = async (table: string, column: string, values: string[]) => {
-        const result = await optionalRows(supabase, table, column, values);
-        return result.error
-          ? { rows: [], response: replyDatabaseError(
-            "works_detail",
-            `Impossible de charger les informations associées (${table})`,
-            result.error,
-          ) }
-          : { rows: result.rows, response: null };
-      };
-      const uniqueIds = (rows: Record<string, unknown>[], field: string) =>
-        [...new Set(rows.flatMap((row) =>
-          typeof row[field] === "string" ? [row[field] as string] : []
-        ))];
+      const { data: editions, error: editionsError } = await supabase
+        .from("editions").select("*").eq("work_id", id);
+      if (editionsError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les éditions", editionsError);
+      }
 
-      const editionsResult = await loadOptional("editions", "work_id", [id]);
-      if (editionsResult.response) return editionsResult.response;
-      const editions = editionsResult.rows;
-      const editionIds = uniqueIds(editions, "id");
+      const editionIds = editions.map((edition) => edition.id);
+      const { data: copies, error: copiesError } = editionIds.length
+        ? await supabase.from("copies").select("*").in("edition_id", editionIds)
+        : { data: [], error: null };
+      if (copiesError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les exemplaires", copiesError);
+      }
 
-      const copiesByWork = await loadOptional("copies", "work_id", [id]);
-      if (copiesByWork.response) return copiesByWork.response;
-      const copiesByEdition = await loadOptional("copies", "edition_id", editionIds);
-      if (copiesByEdition.response) return copiesByEdition.response;
-      const copies = [...new Map(
-        [...copiesByWork.rows, ...copiesByEdition.rows].map((copy) => [copy.id, copy]),
-      ).values()];
+      const { data: workTagLinks, error: workTagError } = await supabase
+        .from("work_tags").select("tag_id").eq("work_id", id);
+      if (workTagError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les tags de l’œuvre", workTagError);
+      }
+      const tagIds = [...new Set(workTagLinks.map((link) => link.tag_id))];
+      const { data: tags, error: tagsError } = tagIds.length
+        ? await supabase.from("tags").select("id, name, category").in("id", tagIds)
+        : { data: [], error: null };
+      if (tagsError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les tags", tagsError);
+      }
+      if (tags.length !== tagIds.length) {
+        return reply({ error: "Un tag associé à l’œuvre est introuvable" }, 500);
+      }
 
-      const workTagsResult = await loadOptional("work_tags", "work_id", [id]);
-      if (workTagsResult.response) return workTagsResult.response;
-      const directTagsResult = await loadOptional("tags", "work_id", [id]);
-      if (directTagsResult.response) return directTagsResult.response;
-      const tagIds = uniqueIds(workTagsResult.rows, "tag_id");
-      const linkedTagsResult = await loadOptional("tags", "id", tagIds);
-      if (linkedTagsResult.response) return linkedTagsResult.response;
-      const resolvedTagIds = new Set(linkedTagsResult.rows.map((tag) => tag.id));
-      const tags = [...new Map(
-        [
-          ...directTagsResult.rows,
-          ...linkedTagsResult.rows,
-          ...workTagsResult.rows.filter((link) => !resolvedTagIds.has(link.tag_id)),
-        ].map((tag, index) => [
-          tag.id || tag.tag_id || JSON.stringify(tag) || index,
-          tag,
-        ]),
-      ).values()];
+      const { data: readingSessions, error: readingSessionsError } = await supabase
+        .from("reading_sessions").select("*").eq("work_id", id);
+      if (readingSessionsError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les sessions de lecture", readingSessionsError);
+      }
+      const { data: notes, error: notesError } = await supabase
+        .from("notes").select("*").eq("work_id", id);
+      if (notesError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les notes", notesError);
+      }
 
-      const readingSessions = await loadOptional("reading_sessions", "work_id", [id]);
-      if (readingSessions.response) return readingSessions.response;
-      const readingNotes = await loadOptional("reading_notes", "work_id", [id]);
-      if (readingNotes.response) return readingNotes.response;
-      const notes = await loadOptional("notes", "work_id", [id]);
-      if (notes.response) return notes.response;
-      const citations = await loadOptional("citations", "work_id", [id]);
-      if (citations.response) return citations.response;
-      const passages = await loadOptional("important_passages", "work_id", [id]);
-      if (passages.response) return passages.response;
-
-      const relationByWork = await loadOptional("work_relations", "work_id", [id]);
-      if (relationByWork.response) return relationByWork.response;
-      const relationBySource = await loadOptional("work_relations", "source_work_id", [id]);
-      if (relationBySource.response) return relationBySource.response;
-      const relationByTarget = await loadOptional("work_relations", "target_work_id", [id]);
-      if (relationByTarget.response) return relationByTarget.response;
+      const [
+        { data: relationsFromWork, error: relationsFromError },
+        { data: relationsToWork, error: relationsToError },
+      ] = await Promise.all([
+        supabase.from("work_relations").select("*").eq("source_work_id", id),
+        supabase.from("work_relations").select("*").eq("target_work_id", id),
+      ]);
+      if (relationsFromError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les relations sortantes", relationsFromError);
+      }
+      if (relationsToError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les relations entrantes", relationsToError);
+      }
       const relations = [...new Map(
-        [
-          ...relationByWork.rows,
-          ...relationBySource.rows,
-          ...relationByTarget.rows,
-        ].map((relation) => [
-          relation.id || JSON.stringify(relation),
-          relation,
-        ]),
+        [...relationsFromWork, ...relationsToWork].map((relation) => [relation.id, relation]),
       ).values()];
-      const relatedWorkIds = [...new Set(relations.flatMap((relation) => [
-        relation.related_work_id,
-        relation.target_work_id,
-        relation.source_work_id,
-      ].filter((relatedId): relatedId is string =>
-        typeof relatedId === "string" && relatedId !== id
-      )))];
+      const relatedWorkIds = [...new Set(relations.map((relation) =>
+        relation.source_work_id === id
+          ? relation.target_work_id
+          : relation.source_work_id
+      ))];
       const { data: relatedWorks, error: relatedWorksError } = relatedWorkIds.length
         ? await supabase.from("works").select("id, title").in("id", relatedWorkIds)
         : { data: [], error: null };
@@ -439,28 +379,25 @@ Deno.serve(async (req) => {
         relatedWork.title,
       ]));
       const relationsWithTitles = relations.map((relation) => {
-        const relatedId = [
-          relation.related_work_id,
-          relation.target_work_id,
-          relation.source_work_id,
-        ].find((relatedId) =>
-          typeof relatedId === "string" && relatedId !== id
-        );
+        const relatedId = relation.source_work_id === id
+          ? relation.target_work_id
+          : relation.source_work_id;
         return {
           ...relation,
-          related_work_title: typeof relatedId === "string"
-            ? relatedTitles.get(relatedId)
-            : undefined,
+          related_work_title: relatedTitles.get(relatedId),
         };
       });
 
-      const locationIds = uniqueIds(copies, "location_id");
-      const locationsResult = await loadOptional("locations", "id", locationIds);
-      if (locationsResult.response) return locationsResult.response;
-      const locationsById = new Map(locationsResult.rows.map((location) => [
-        location.id,
-        location.name || location.label || location.location,
-      ]));
+      const locationIds = [...new Set(copies.flatMap((copy) =>
+        typeof copy.location_id === "string" ? [copy.location_id] : []
+      ))];
+      const { data: locations, error: locationsError } = locationIds.length
+        ? await supabase.from("locations").select("id, name").in("id", locationIds)
+        : { data: [], error: null };
+      if (locationsError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les emplacements", locationsError);
+      }
+      const locationsById = new Map(locations.map((location) => [location.id, location.name]));
       const copiesWithLocations = copies.map((copy) => ({
         ...copy,
         location_name: locationsById.get(copy.location_id),
@@ -471,13 +408,8 @@ Deno.serve(async (req) => {
         editions,
         copies: copiesWithLocations,
         tags,
-        reading_sessions: readingSessions.rows,
-        notes: [
-          ...readingNotes.rows,
-          ...notes.rows,
-          ...citations.rows,
-          ...passages.rows,
-        ],
+        reading_sessions: readingSessions,
+        notes,
         relations: relationsWithTitles,
       });
     }
@@ -533,6 +465,73 @@ Deno.serve(async (req) => {
 
       if (error) return replyDatabaseError("authors_list", "Impossible de charger les auteurs", error);
       return reply({ authors: data });
+    }
+
+    if (action === "tags_list") {
+      const { data, error } = await supabase
+        .from("tags")
+        .select("*")
+        .order("name", { ascending: true });
+      if (error) return replyDatabaseError("tags_list", "Impossible de charger les tags", error);
+      return reply({ tags: data });
+    }
+
+    if (action === "works_tags_set") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (typeof id !== "string" || !isUuid(id) || !Array.isArray(body.tags)) {
+        return reply({ error: "Liste de tags invalide" }, 400);
+      }
+
+      const tagIds = body.tags;
+      if (
+        tagIds.some((tagId) => typeof tagId !== "string" || !isUuid(tagId)) ||
+        new Set(tagIds).size !== tagIds.length
+      ) {
+        return reply({ error: "Liste de tags invalide ou contenant des doublons" }, 400);
+      }
+
+      const { data: workRow, error: workCheckError } = await supabase
+        .from("works").select("id").eq("id", id).maybeSingle();
+      if (workCheckError) {
+        return replyDatabaseError("works_tags_set", "Impossible de vérifier l’œuvre", workCheckError);
+      }
+      if (!workRow) return reply({ error: "Œuvre introuvable" }, 404);
+
+      const { data: selectedTags, error: selectedTagsError } = tagIds.length
+        ? await supabase.from("tags").select("id").in("id", tagIds)
+        : { data: [], error: null };
+      if (selectedTagsError) {
+        return replyDatabaseError("works_tags_set", "Impossible de vérifier les tags", selectedTagsError);
+      }
+      if (selectedTags.length !== tagIds.length) {
+        return reply({ error: "Un tag sélectionné n’existe plus" }, 400);
+      }
+
+      const { data: existingLinks, error: existingLinksError } = await supabase
+        .from("work_tags").select("tag_id").eq("work_id", id);
+      if (existingLinksError) {
+        return replyDatabaseError("works_tags_set", "Impossible de lire les tags associés", existingLinksError);
+      }
+
+      for (const tagId of tagIds) {
+        if (existingLinks.some((link) => link.tag_id === tagId)) continue;
+        const { error: insertError } = await supabase
+          .from("work_tags").insert({ work_id: id, tag_id: tagId });
+        if (insertError) {
+          return replyDatabaseError("works_tags_set", "Impossible d’associer un tag", insertError);
+        }
+      }
+      for (const link of existingLinks) {
+        if (tagIds.includes(link.tag_id)) continue;
+        const { error: deleteError } = await supabase
+          .from("work_tags").delete().eq("work_id", id).eq("tag_id", link.tag_id);
+        if (deleteError) {
+          return replyDatabaseError("works_tags_set", "Impossible de retirer un tag", deleteError);
+        }
+      }
+      return reply({ tags: tagIds });
     }
 
     if (action === "works_create") {
@@ -749,7 +748,9 @@ Deno.serve(async (req) => {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) return reply({ error: "Impossible de charger les livres" }, 400);
+      if (error) {
+        return replyDatabaseError("list", "Impossible de charger les livres", error);
+      }
       return reply({ books: data });
     }
 
@@ -774,7 +775,9 @@ Deno.serve(async (req) => {
       const { data, error } = await supabase
         .from("books").insert(cleanBook).select().single();
 
-      if (error) return reply({ error: "Impossible d'ajouter le livre" }, 400);
+      if (error) {
+        return replyDatabaseError("create", "Impossible d'ajouter le livre", error);
+      }
       return reply({ book: data }, 201);
     }
 
@@ -794,7 +797,9 @@ Deno.serve(async (req) => {
       const { data, error } = await supabase
         .from("books").update(cleanBook).eq("id", id).select().single();
 
-      if (error) return reply({ error: "Impossible de modifier le livre" }, 400);
+      if (error) {
+        return replyDatabaseError("update", "Impossible de modifier le livre", error);
+      }
       return reply({ book: data });
     }
 
@@ -806,12 +811,18 @@ Deno.serve(async (req) => {
       const { data, error } = await supabase
         .from("books").delete().eq("id", id).select("id").single();
 
-      if (error) return reply({ error: "Impossible de supprimer le livre" }, 400);
+      if (error) {
+        return replyDatabaseError("delete", "Impossible de supprimer le livre", error);
+      }
       return reply({ deleted: data.id });
     }
 
     return reply({ error: "Action inconnue" }, 400);
-  } catch {
-    return reply({ error: "Requête invalide" }, 400);
+  } catch (error) {
+    console.error("dream-library-edit request failed", error);
+    if (error instanceof SyntaxError) {
+      return reply({ error: "Requête JSON invalide" }, 400);
+    }
+    return reply({ error: "Erreur interne lors du traitement de la requête" }, 500);
   }
 });

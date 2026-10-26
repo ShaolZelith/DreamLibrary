@@ -1,0 +1,23 @@
+| tablename | indexname | indexdef |
+|---|---|---|
+| authors | authors_name_key | CREATE UNIQUE INDEX authors_name_key ON public.authors USING btree (name) |
+| authors | authors_pkey | CREATE UNIQUE INDEX authors_pkey ON public.authors USING btree (id) |
+| copies | copies_edition_id_idx | CREATE INDEX copies_edition_id_idx ON public.copies USING btree (edition_id) |
+| copies | copies_pkey | CREATE UNIQUE INDEX copies_pkey ON public.copies USING btree (id) |
+| editions | editions_isbn_unique | CREATE UNIQUE INDEX editions_isbn_unique ON public.editions USING btree (isbn) WHERE ((isbn IS NOT NULL) AND (isbn <> ''::text)) |
+| editions | editions_pkey | CREATE UNIQUE INDEX editions_pkey ON public.editions USING btree (id) |
+| editions | editions_work_id_idx | CREATE INDEX editions_work_id_idx ON public.editions USING btree (work_id) |
+| locations | locations_pkey | CREATE UNIQUE INDEX locations_pkey ON public.locations USING btree (id) |
+| notes | notes_pkey | CREATE UNIQUE INDEX notes_pkey ON public.notes USING btree (id) |
+| notes | notes_work_id_idx | CREATE INDEX notes_work_id_idx ON public.notes USING btree (work_id) |
+| reading_sessions | reading_sessions_pkey | CREATE UNIQUE INDEX reading_sessions_pkey ON public.reading_sessions USING btree (id) |
+| reading_sessions | reading_sessions_work_id_idx | CREATE INDEX reading_sessions_work_id_idx ON public.reading_sessions USING btree (work_id) |
+| tags | tags_category_name_key | CREATE UNIQUE INDEX tags_category_name_key ON public.tags USING btree (category, name) |
+| tags | tags_pkey | CREATE UNIQUE INDEX tags_pkey ON public.tags USING btree (id) |
+| work_authors | work_authors_pkey | CREATE UNIQUE INDEX work_authors_pkey ON public.work_authors USING btree (work_id, author_id, role) |
+| work_relations | work_relations_pkey | CREATE UNIQUE INDEX work_relations_pkey ON public.work_relations USING btree (id) |
+| work_relations | work_relations_source_work_id_target_work_id_relation_type_key | CREATE UNIQUE INDEX work_relations_source_work_id_target_work_id_relation_type_key ON public.work_relations USING btree (source_work_id, target_work_id, relation_type) |
+| work_relations | work_relations_target_idx | CREATE INDEX work_relations_target_idx ON public.work_relations USING btree (target_work_id) |
+| work_tags | work_tags_pkey | CREATE UNIQUE INDEX work_tags_pkey ON public.work_tags USING btree (work_id, tag_id) |
+| work_tags | work_tags_tag_id_idx | CREATE INDEX work_tags_tag_id_idx ON public.work_tags USING btree (tag_id) |
+| works | works_pkey | CREATE UNIQUE INDEX works_pkey ON public.works USING btree (id) |

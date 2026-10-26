@@ -8,6 +8,9 @@ let works = [];
 let selectedWorkId = "";
 let availableAuthors = [];
 let selectedAuthors = [];
+let availableTags = [];
+let selectedTags = [];
+let tagsEdited = false;
 let accessPassword = "";
 let accessLevel = "";
 let modeSwitchTarget = "";
@@ -27,8 +30,17 @@ function showStatus(message, isError = false) {
 }
 
 function showAuthorStatus(message, isError = false) {
-  $("authorStatus").textContent = message;
-  $("authorStatus").style.color = isError ? "#a34848" : "";
+  const status = $("authorStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.style.color = isError ? "#a34848" : "";
+}
+
+function showTagStatus(message, isError = false) {
+  const status = $("tagStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.style.color = isError ? "#a34848" : "";
 }
 
 function normalizeWork(work) {
@@ -199,8 +211,17 @@ async function loadAuthors() {
   showAuthorStatus("");
 }
 
+async function loadTags() {
+  const result = await editRequest("tags_list");
+  if (!Array.isArray(result.tags)) {
+    throw new Error("Réponse invalide : la liste des tags est absente.");
+  }
+  availableTags = result.tags;
+}
+
 function renderAuthorOptions() {
   const select = $("authorSelect");
+  if (!select) return;
   const selectedId = select.value;
   select.replaceChildren(new Option("Choisir un auteur…", ""));
   availableAuthors.forEach((author) => {
@@ -213,6 +234,7 @@ function renderAuthorOptions() {
 
 function renderSelectedAuthors() {
   const container = $("selectedAuthors");
+  if (!container) return;
   if (!selectedAuthors.length) {
     container.textContent = "Aucun auteur associé pour le moment.";
     return;
@@ -237,6 +259,37 @@ function renderSelectedAuthors() {
       }));
       renderSelectedAuthors();
     });
+  });
+}
+
+function renderSelectedTags() {
+  const container = $("selectedTags");
+  if (!container) return;
+  if (!selectedTags.length) {
+    container.textContent = "Aucun tag associé.";
+    return;
+  }
+  container.innerHTML = selectedTags.map((tag, index) => `
+    <div class="selected-author">
+      <span>${escapeHTML(displayName(tag))}${tag.category
+        ? ` (${escapeHTML(tag.category)})`
+        : ""}</span>
+      <button type="button" data-remove-tag="${index}">Retirer</button>
+    </div>
+  `).join("");
+}
+
+function renderTagOptions() {
+  const select = $("tagSelect");
+  if (!select) return;
+  select.replaceChildren(new Option("Choisir un tag…", ""));
+  availableTags.forEach((tag) => {
+    const name = displayName(tag);
+    if (!tag.id || !name) return;
+    select.add(new Option(
+      tag.category ? `${name} (${tag.category})` : name,
+      tag.id,
+    ));
   });
 }
 
@@ -418,6 +471,11 @@ function renderWorkDetails(details) {
 }
 
 async function openWorkDetails(id) {
+  if (
+    $("workForm") &&
+    selectedWorkId !== id &&
+    !confirm("Abandonner les modifications non enregistrées ?")
+  ) return;
   selectedWorkId = id;
   renderWorks();
   const panel = $("workDetails");
@@ -431,6 +489,7 @@ async function openWorkDetails(id) {
       throw new Error("Réponse invalide : les détails de l’œuvre sont absents.");
     }
     renderWorkDetails(result);
+    return true;
   } catch (error) {
     if (selectedWorkId !== id) return;
     panel.innerHTML = `
@@ -442,6 +501,7 @@ async function openWorkDetails(id) {
     `;
     panel.querySelector("[data-close-details]").addEventListener("click", closeWorkDetails);
     console.error("works_detail failed", error);
+    return false;
   }
 }
 
@@ -531,51 +591,75 @@ function renderWorks() {
   });
 }
 
-function showEditor() {
+function renderWorkEditor(mode, work = null) {
   if (accessLevel !== "edit") return;
-  $("editorPanel").classList.remove("hidden");
-  $("toggleEditorButton").textContent = "Masquer le formulaire";
-}
 
-function hideEditor() {
-  $("editorPanel").classList.add("hidden");
-  $("toggleEditorButton").textContent = "Afficher le formulaire";
-  resetForm();
-}
+  const panel = $("workDetails");
+  panel.classList.remove("hidden");
+  panel.classList.remove("no-cover");
+  panel.innerHTML = `
+    <div class="detail-heading">
+      <h2>${mode === "create" ? "Ajouter un livre" : "Modifier le livre"}</h2>
+    </div>
+    <div class="detail-edit-layout"></div>
+  `;
+  panel.querySelector(".detail-edit-layout").append(
+    $("workEditorTemplate").content.cloneNode(true)
+  );
 
-function resetForm() {
-  $("workForm").reset();
-  $("workId").value = "";
-  $("formTitle").textContent = "Ajouter une œuvre";
-  selectedAuthors = [];
-  renderSelectedAuthors();
-  showAuthorStatus("");
-}
-
-function fillForm(work) {
-  if (accessLevel !== "edit") return;
-  $("workId").value = work.id;
-  $("title").value = work.title === "Sans titre" ? "" : work.title;
-  selectedAuthors = work.authors.map((author, index) => ({
+  const form = $("workForm");
+  $("saveWorkButton").textContent = mode === "create"
+    ? "Enregistrer le livre"
+    : "Enregistrer les modifications";
+  $("workId").value = work?.id || "";
+  $("title").value = work?.title === "Sans titre" ? "" : work?.title || "";
+  $("coverUrl").value = work?.cover_url || "";
+  $("summary").value = work?.summary || "";
+  $("originalLanguage").value = work?.original_language || "";
+  $("workType").value = work?.work_type || "";
+  $("isPriority").checked = work?.is_priority === true;
+  $("is_owned").checked = work?.is_owned === true;
+  $("is_not_owned").checked = work?.is_owned === false;
+  $("is_read").checked = work?.is_read === true;
+  $("is_not_read").checked = work?.is_read === false;
+  selectedAuthors = (work?.authors || []).map((author, index) => ({
     id: author.id,
     name: author.name,
     role: author.role || "author",
     position: author.position || index + 1
   }));
+  renderAuthorOptions();
   renderSelectedAuthors();
-  $("existingAuthorRole").value = "author";
-  $("coverUrl").value = work.cover_url;
-  $("summary").value = work.summary;
-  $("originalLanguage").value = work.original_language;
-  $("workType").value = work.work_type;
-  $("isPriority").checked = work.is_priority;
-  $("is_owned").checked = work.is_owned === true;
-  $("is_not_owned").checked = work.is_owned === false;
-  $("is_read").checked = work.is_read === true;
-  $("is_not_read").checked = work.is_read === false;
-  $("formTitle").textContent = "Modifier une œuvre";
-  showEditor();
-  $("editorPanel").scrollIntoView({ behavior: "smooth" });
+  selectedTags = (work?.tags || []).filter((tag) => tag.id);
+  tagsEdited = false;
+  renderTagOptions();
+  renderSelectedTags();
+  showAuthorStatus("");
+  showTagStatus("");
+  $("editorMessage").textContent = "";
+  form.dataset.mode = mode;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function beginCreateWork() {
+  if (accessLevel !== "edit") return;
+  if ($("workForm") && !confirm("Abandonner les modifications non enregistrées ?")) return;
+  selectedWorkId = "";
+  renderWorks();
+  renderWorkEditor("create");
+  loadTags().then(renderTagOptions).catch((error) => {
+    showTagStatus(`Impossible de charger les tags : ${error.message}`, true);
+  });
+}
+
+function fillForm(work) {
+  if (accessLevel !== "edit") return;
+  selectedWorkId = work.id;
+  renderWorks();
+  renderWorkEditor("edit", work);
+  loadTags().then(renderTagOptions).catch((error) => {
+    showTagStatus(`Impossible de charger les tags : ${error.message}`, true);
+  });
 }
 
 function openLogin() {
@@ -616,23 +700,26 @@ function beginModeSwitch(target) {
 
 function applyAccessMode() {
   const isEditor = accessLevel === "edit";
+  const wasEditing = Boolean($("workForm"));
   $("editModeButton").textContent = isEditor
     ? "Passer en mode lecture"
     : "Passer en mode édition";
+  $("addWorkButton").classList.toggle("hidden", !isEditor);
 
-  if (isEditor) {
-    showEditor();
-  } else {
+  if (!isEditor) {
+    if (wasEditing) {
+      const editingId = $("workId").value;
+      if (editingId) openWorkDetails(editingId);
+      else closeWorkDetails();
+    }
     selectedAuthors = [];
-    hideEditor();
     availableAuthors = [];
-    renderAuthorOptions();
+    availableTags = [];
     renderSelectedAuthors();
-    showAuthorStatus("");
   }
 
   renderWorks();
-  if (selectedWorkId) openWorkDetails(selectedWorkId);
+  if (selectedWorkId && !wasEditing) openWorkDetails(selectedWorkId);
 }
 
 function logout() {
@@ -657,22 +744,14 @@ function logout() {
   $("workTypeFilter").value = "all";
   $("priorityFilter").value = "all";
   showAuthorStatus("");
-  hideEditor();
+  $("addWorkButton").classList.add("hidden");
 }
 
 $("editModeButton").addEventListener("click", () => {
   beginModeSwitch(accessLevel === "edit" ? "view" : "edit");
 });
 
-$("toggleEditorButton").addEventListener("click", () => {
-  if (accessLevel !== "edit") return;
-  if ($("editorPanel").classList.contains("hidden")) {
-    showEditor();
-    $("editorPanel").scrollIntoView({ behavior: "smooth" });
-  } else {
-    hideEditor();
-  }
-});
+$("addWorkButton").addEventListener("click", beginCreateWork);
 
 $("cancelLogin").addEventListener("click", () => {
   if (modeSwitchTarget && accessLevel) {
@@ -734,7 +813,8 @@ $("loginForm").addEventListener("submit", async (event) => {
   }
 });
 
-$("workForm").addEventListener("submit", async (event) => {
+document.addEventListener("submit", async (event) => {
+  if (event.target.id !== "workForm") return;
   event.preventDefault();
   if (accessLevel !== "edit" || !accessPassword) return;
 
@@ -763,7 +843,8 @@ $("workForm").addEventListener("submit", async (event) => {
     is_read: selectedBoolean("is_read", "is_not_read")
   };
   const id = $("workId").value;
-  const submitButton = $("workForm").querySelector('[type="submit"]');
+  const submitButton = $("saveWorkButton");
+  const formMode = $("workForm").dataset.mode;
   submitButton.disabled = true;
 
   try {
@@ -775,6 +856,11 @@ $("workForm").addEventListener("submit", async (event) => {
     );
     const savedId = id || result.work?.id;
     if (!savedId) throw new Error("La fonction n’a pas renvoyé l’identifiant de l’œuvre.");
+    if (!id) {
+      $("workId").value = savedId;
+      $("workForm").dataset.mode = "edit";
+      selectedWorkId = savedId;
+    }
 
     try {
       const authorResult = await editRequest(
@@ -808,14 +894,43 @@ $("workForm").addEventListener("submit", async (event) => {
       renderAuthorOptions();
     } catch (error) {
       await loadWorks();
-      showStatus(`Œuvre enregistrée, mais les auteurs n’ont pas été enregistrés : ${error.message}`, true);
+      $("editorMessage").textContent =
+        `Le livre est enregistré, mais les auteurs n’ont pas été enregistrés : ${error.message}`;
+      $("editorMessage").classList.add("is-error");
       console.error("works_authors_set failed", error);
       return;
     }
 
+    const tagsNeedVerification = tagsEdited || selectedTags.length > 0;
+    if (tagsEdited || selectedTags.length) {
+      try {
+        const tagsResult = await editRequest(
+          "works_tags_set",
+          accessPassword,
+          null,
+          savedId,
+          { tags: selectedTags.map((tag) => tag.id) }
+        );
+        if (
+          !Array.isArray(tagsResult.tags) ||
+          tagsResult.tags.length !== selectedTags.length
+        ) {
+          throw new Error("L’API n’a pas confirmé tous les tags associés.");
+        }
+      } catch (error) {
+        $("editorMessage").textContent =
+          `Le livre et ses auteurs sont enregistrés, mais les tags n’ont pas été enregistrés : ${error.message}`;
+        $("editorMessage").classList.add("is-error");
+        console.error("works_tags_set failed", error);
+        return;
+      }
+    }
+
     const worksLoaded = await loadWorks();
     if (!worksLoaded) {
-      showStatus("Œuvre et auteurs enregistrés, mais impossible de vérifier leur affichage. Rechargez la bibliothèque.", true);
+      $("editorMessage").textContent =
+        "Le livre et ses associations sont enregistrés, mais impossible de vérifier leur affichage. Rechargez la bibliothèque.";
+      $("editorMessage").classList.add("is-error");
       return;
     }
     const savedWork = works.find((item) => item.id === savedId);
@@ -824,34 +939,59 @@ $("workForm").addEventListener("submit", async (event) => {
       savedWork.is_owned !== work.is_owned ||
       savedWork.is_read !== work.is_read
     ) {
-      showStatus(
-        "Œuvre enregistrée, mais les statuts Lu/Non lu et Possédé/Non possédé ne correspondent pas aux valeurs relues depuis Supabase. Vérifie le déploiement de l’Edge Function.",
-        true
-      );
+      $("editorMessage").textContent =
+        "Le livre est enregistré, mais les statuts relus ne correspondent pas aux choix envoyés. Vérifie le déploiement de l’Edge Function.";
+      $("editorMessage").classList.add("is-error");
       return;
     }
     const missingAuthor = authorsToSave.find((selected) =>
-      !savedWork?.authors.some((author) =>
+      !savedWork.authors.some((author) =>
         (selected.id ? author.id === selected.id : author.name === selected.name) &&
         author.role === selected.role
       )
     );
     if (missingAuthor) {
+      $("editorMessage").textContent =
+        `Le livre est enregistré, mais l’association de « ${missingAuthor.name} » n’a pas été retrouvée après relecture.`;
+      $("editorMessage").classList.add("is-error");
+      return;
+    }
+    if (tagsNeedVerification) {
+      const savedTagIds = savedWork.tags
+        .map((tag) => tag.id)
+        .filter((tagId) => typeof tagId === "string");
+      if (
+        savedTagIds.length !== selectedTags.length ||
+        selectedTags.some((tag) => !savedTagIds.includes(tag.id))
+      ) {
+        $("editorMessage").textContent =
+          "Le livre est enregistré, mais les tags relus ne correspondent pas aux choix envoyés.";
+        $("editorMessage").classList.add("is-error");
+        return;
+      }
+    }
+
+    selectedWorkId = savedId;
+    if (!await openWorkDetails(savedId)) {
       showStatus(
-        `L’œuvre est enregistrée, mais l’association de « ${missingAuthor.name} » n’a pas été retrouvée après relecture.`,
+        "Enregistrement confirmé, mais les détails ne peuvent pas être rechargés.",
         true
       );
       return;
     }
-
-    resetForm();
-    showStatus(id ? "Œuvre modifiée !" : "Œuvre ajoutée !");
-    if (id && selectedWorkId === savedId) await openWorkDetails(savedId);
+    showStatus(formMode === "create" ? "Livre ajouté !" : "Modifications enregistrées.");
   } catch (error) {
-    showStatus(error.message || "Impossible d'enregistrer l’œuvre.", true);
+    const message = error.message || "Impossible d’enregistrer le livre.";
+    const editorMessage = $("editorMessage");
+    if (editorMessage) {
+      editorMessage.textContent = message;
+      editorMessage.classList.add("is-error");
+    } else {
+      showStatus(message, true);
+    }
     console.error("Saving work failed", error);
   } finally {
-    submitButton.disabled = false;
+    if (submitButton) submitButton.disabled = false;
   }
 });
 
@@ -878,50 +1018,74 @@ async function deleteWork(id) {
   }
 }
 
-$("resetForm").addEventListener("click", resetForm);
 $("logoutButton").addEventListener("click", logout);
 
-[
-  ["is_owned", "is_not_owned"],
-  ["is_read", "is_not_read"]
-].forEach(([positiveId, negativeId]) => {
-  const positive = $(positiveId);
-  const negative = $(negativeId);
-  positive.addEventListener("change", () => {
-    if (positive.checked) negative.checked = false;
-  });
-  negative.addEventListener("change", () => {
-    if (negative.checked) positive.checked = false;
-  });
-});
-
-renderSelectedAuthors();
-
-$("addExistingAuthor").addEventListener("click", () => {
-  if (accessLevel !== "edit") return;
-  const author = availableAuthors.find((item) => item.id === $("authorSelect").value);
-  if (!author) {
-    showAuthorStatus("Choisis un auteur existant dans la liste.", true);
-    return;
-  }
-  const role = $("existingAuthorRole").value.trim() || "author";
-  if (addSelectedAuthor({ id: author.id, name: author.name, role })) {
-    $("authorSelect").value = "";
-    $("existingAuthorRole").value = "author";
+document.addEventListener("change", (event) => {
+  for (const [positiveId, negativeId] of [
+    ["is_owned", "is_not_owned"],
+    ["is_read", "is_not_read"]
+  ]) {
+    if (event.target.id === positiveId && event.target.checked) $(negativeId).checked = false;
+    if (event.target.id === negativeId && event.target.checked) $(positiveId).checked = false;
   }
 });
 
-$("addNewAuthor").addEventListener("click", () => {
-  if (accessLevel !== "edit") return;
-  const name = $("newAuthorName").value.trim();
-  const role = $("newAuthorRole").value.trim() || "author";
-  if (!name) {
-    showAuthorStatus("Saisis le nom du nouvel auteur.", true);
-    return;
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (target.closest("#addExistingAuthor")) {
+    if (accessLevel !== "edit") return;
+    const author = availableAuthors.find((item) => item.id === $("authorSelect").value);
+    if (!author) {
+      showAuthorStatus("Choisis un auteur existant dans la liste.", true);
+      return;
+    }
+    const role = $("existingAuthorRole").value.trim() || "author";
+    if (addSelectedAuthor({ id: author.id, name: author.name, role })) {
+      $("authorSelect").value = "";
+      $("existingAuthorRole").value = "author";
+    }
   }
-  if (addSelectedAuthor({ name, role })) {
-    $("newAuthorName").value = "";
-    $("newAuthorRole").value = "author";
+
+  if (target.closest("#addNewAuthor")) {
+    if (accessLevel !== "edit") return;
+    const name = $("newAuthorName").value.trim();
+    const role = $("newAuthorRole").value.trim() || "author";
+    if (!name) {
+      showAuthorStatus("Saisis le nom du nouvel auteur.", true);
+      return;
+    }
+    if (addSelectedAuthor({ name, role })) {
+      $("newAuthorName").value = "";
+      $("newAuthorRole").value = "author";
+    }
+  }
+
+  if (target.closest("#addWorkTag") && accessLevel === "edit") {
+    const tag = availableTags.find((item) => item.id === $("tagSelect").value);
+    if (!tag) {
+      showTagStatus("Choisis un tag dans la liste.", true);
+      return;
+    }
+    if (!selectedTags.some((item) => item.id === tag.id)) {
+      selectedTags.push(tag);
+      tagsEdited = true;
+      renderSelectedTags();
+      showTagStatus("");
+    }
+    $("tagSelect").value = "";
+  }
+
+  const removeTag = target.closest("[data-remove-tag]");
+  if (removeTag && accessLevel === "edit") {
+    selectedTags.splice(Number(removeTag.dataset.removeTag), 1);
+    tagsEdited = true;
+    renderSelectedTags();
+  }
+
+  if (target.closest("#cancelWorkEditButton") && accessLevel === "edit") {
+    const form = $("workForm");
+    if (form?.dataset.mode === "create") closeWorkDetails();
+    else if (form) openWorkDetails($("workId").value);
   }
 });
 

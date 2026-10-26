@@ -1,0 +1,66 @@
+| table_name | ordinal_position | column_name | data_type | udt_name | is_nullable | column_default | character_maximum_length | numeric_precision | numeric_scale |
+|---|---:|---|---|---|---|---|---|---:|---:|
+| authors | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| authors | 2 | name | text | text | NO | null | null | null | null |
+| copies | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| copies | 2 | edition_id | uuid | uuid | NO | null | null | null | null |
+| copies | 3 | ownership_status | text | text | NO | 'owned'::text | null | null | null |
+| copies | 4 | location_id | uuid | uuid | YES | null | null | null | null |
+| copies | 5 | condition | text | text | YES | null | null | null | null |
+| copies | 6 | acquired_at | date | date | YES | null | null | null | null |
+| copies | 7 | notes | text | text | YES | null | null | null | null |
+| copies | 8 | created_at | timestamp with time zone | timestamptz | NO | now() | null | null | null |
+| editions | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| editions | 2 | work_id | uuid | uuid | NO | null | null | null | null |
+| editions | 3 | isbn | text | text | YES | null | null | null | null |
+| editions | 4 | publisher | text | text | YES | null | null | null | null |
+| editions | 5 | publication_year | integer | int4 | YES | null | null | 32 | 0 |
+| editions | 6 | language | text | text | YES | null | null | null | null |
+| editions | 7 | format | text | text | YES | null | null | null | null |
+| editions | 8 | pages | integer | int4 | YES | null | null | 32 | 0 |
+| editions | 9 | created_at | timestamp with time zone | timestamptz | NO | now() | null | null | null |
+| locations | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| locations | 2 | name | text | text | NO | null | null | null | null |
+| locations | 3 | parent_id | uuid | uuid | YES | null | null | null | null |
+| notes | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| notes | 2 | work_id | uuid | uuid | NO | null | null | null | null |
+| notes | 3 | reading_session_id | uuid | uuid | YES | null | null | null | null |
+| notes | 4 | note_type | text | text | NO | 'reflection'::text | null | null | null |
+| notes | 5 | content | text | text | NO | null | null | null | null |
+| notes | 6 | page | text | text | YES | null | null | null | null |
+| notes | 7 | chapter | text | text | YES | null | null | null | null |
+| notes | 8 | created_at | timestamp with time zone | timestamptz | NO | now() | null | null | null |
+| reading_sessions | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| reading_sessions | 2 | work_id | uuid | uuid | NO | null | null | null | null |
+| reading_sessions | 3 | copy_id | uuid | uuid | YES | null | null | null | null |
+| reading_sessions | 4 | started_at | date | date | YES | null | null | null | null |
+| reading_sessions | 5 | finished_at | date | date | YES | null | null | null | null |
+| reading_sessions | 6 | status | text | text | NO | 'planned'::text | null | null | null |
+| reading_sessions | 7 | rating | numeric | numeric | YES | null | null | 2 | 1 |
+| reading_sessions | 8 | review | text | text | YES | null | null | null | null |
+| reading_sessions | 9 | created_at | timestamp with time zone | timestamptz | NO | now() | null | null | null |
+| tags | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| tags | 2 | name | text | text | NO | null | null | null | null |
+| tags | 3 | category | text | text | NO | null | null | null | null |
+| work_authors | 1 | work_id | uuid | uuid | NO | null | null | null | null |
+| work_authors | 2 | author_id | uuid | uuid | NO | null | null | null | null |
+| work_authors | 3 | role | text | text | NO | 'author'::text | null | null | null |
+| work_authors | 4 | position | integer | int4 | NO | 1 | null | 32 | 0 |
+| work_relations | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| work_relations | 2 | source_work_id | uuid | uuid | NO | null | null | null | null |
+| work_relations | 3 | target_work_id | uuid | uuid | NO | null | null | null | null |
+| work_relations | 4 | relation_type | text | text | NO | null | null | null | null |
+| work_relations | 5 | comment | text | text | YES | null | null | null | null |
+| work_relations | 6 | created_at | timestamp with time zone | timestamptz | NO | now() | null | null | null |
+| work_tags | 1 | work_id | uuid | uuid | NO | null | null | null | null |
+| work_tags | 2 | tag_id | uuid | uuid | NO | null | null | null | null |
+| works | 1 | id | uuid | uuid | NO | gen_random_uuid() | null | null | null |
+| works | 2 | title | text | text | NO | null | null | null | null |
+| works | 3 | summary | text | text | YES | null | null | null | null |
+| works | 4 | cover_url | text | text | YES | null | null | null | null |
+| works | 5 | original_language | text | text | YES | null | null | null | null |
+| works | 6 | work_type | text | text | YES | null | null | null | null |
+| works | 7 | is_priority | boolean | bool | NO | false | null | null | null |
+| works | 8 | created_at | timestamp with time zone | timestamptz | NO | now() | null | null | null |
+| works | 9 | is_read | boolean | bool | YES | null | null | null | null |
+| works | 10 | is_owned | boolean | bool | YES | null | null | null | null |

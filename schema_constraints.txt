@@ -1,0 +1,40 @@
+| table_name | constraint_name | constraint_type | definition | is_validated | is_deferrable | initially_deferred |
+|---|---|---|---|---|---|---|
+| authors | authors_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| authors | authors_name_key | UNIQUE | UNIQUE (name) | true | false | false |
+| copies | copies_ownership_status_valid | CHECK | CHECK (ownership_status = ANY (ARRAY['owned'::text, 'borrowed'::text, 'loaned'::text, 'wanted'::text, 'digital'::text])) | true | false | false |
+| copies | copies_edition_id_fkey | FOREIGN KEY | FOREIGN KEY (edition_id) REFERENCES editions(id) ON DELETE CASCADE | true | false | false |
+| copies | copies_location_id_fkey | FOREIGN KEY | FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL | true | false | false |
+| copies | copies_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| editions | editions_pages_positive | CHECK | CHECK (pages IS NULL OR pages > 0) | true | false | false |
+| editions | editions_year_valid | CHECK | CHECK (publication_year IS NULL OR publication_year >= 1 AND publication_year <= 9999) | true | false | false |
+| editions | editions_work_id_fkey | FOREIGN KEY | FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE | true | false | false |
+| editions | editions_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| locations | locations_parent_id_fkey | FOREIGN KEY | FOREIGN KEY (parent_id) REFERENCES locations(id) ON DELETE SET NULL | true | false | false |
+| locations | locations_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| notes | note_type_valid | CHECK | CHECK (note_type = ANY (ARRAY['quote'::text, 'reflection'::text, 'summary'::text, 'highlight'::text])) | true | false | false |
+| notes | notes_reading_session_id_fkey | FOREIGN KEY | FOREIGN KEY (reading_session_id) REFERENCES reading_sessions(id) ON DELETE SET NULL | true | false | false |
+| notes | notes_work_id_fkey | FOREIGN KEY | FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE | true | false | false |
+| notes | notes_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| reading_sessions | reading_rating_half_star | CHECK | CHECK (rating IS NULL OR (rating * 2::numeric) = trunc(rating * 2::numeric)) | true | false | false |
+| reading_sessions | reading_rating_valid | CHECK | CHECK (rating IS NULL OR rating >= 0.5 AND rating <= 5::numeric) | true | false | false |
+| reading_sessions | reading_status_valid | CHECK | CHECK (status = ANY (ARRAY['planned'::text, 'in_progress'::text, 'completed'::text, 'abandoned'::text])) | true | false | false |
+| reading_sessions | reading_sessions_copy_id_fkey | FOREIGN KEY | FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE SET NULL | true | false | false |
+| reading_sessions | reading_sessions_work_id_fkey | FOREIGN KEY | FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE | true | false | false |
+| reading_sessions | reading_sessions_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| tags | tag_category_valid | CHECK | CHECK (category = ANY (ARRAY['genre'::text, 'theme'::text, 'place'::text, 'period'::text])) | true | false | false |
+| tags | tags_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| tags | tags_category_name_key | UNIQUE | UNIQUE (category, name) | true | false | false |
+| work_authors | work_authors_author_id_fkey | FOREIGN KEY | FOREIGN KEY (author_id) REFERENCES authors(id) | true | false | false |
+| work_authors | work_authors_work_id_fkey | FOREIGN KEY | FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE | true | false | false |
+| work_authors | work_authors_pkey | PRIMARY KEY | PRIMARY KEY (work_id, author_id, role) | true | false | false |
+| work_relations | relation_not_self | CHECK | CHECK (source_work_id <> target_work_id) | true | false | false |
+| work_relations | relation_type_valid | CHECK | CHECK (relation_type = ANY (ARRAY['same_subject'::text, 'complements'::text, 'contradicts'::text, 'criticizes'::text, 'alternative_view'::text])) | true | false | false |
+| work_relations | work_relations_source_work_id_fkey | FOREIGN KEY | FOREIGN KEY (source_work_id) REFERENCES works(id) ON DELETE CASCADE | true | false | false |
+| work_relations | work_relations_target_work_id_fkey | FOREIGN KEY | FOREIGN KEY (target_work_id) REFERENCES works(id) ON DELETE CASCADE | true | false | false |
+| work_relations | work_relations_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |
+| work_relations | work_relations_source_work_id_target_work_id_relation_type_key | UNIQUE | UNIQUE (source_work_id, target_work_id, relation_type) | true | false | false |
+| work_tags | work_tags_tag_id_fkey | FOREIGN KEY | FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE | true | false | false |
+| work_tags | work_tags_work_id_fkey | FOREIGN KEY | FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE | true | false | false |
+| work_tags | work_tags_pkey | PRIMARY KEY | PRIMARY KEY (work_id, tag_id) | true | false | false |
+| works | works_pkey | PRIMARY KEY | PRIMARY KEY (id) | true | false | false |

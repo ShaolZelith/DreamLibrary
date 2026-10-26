@@ -35,82 +35,13 @@
     </header>
 
     <main>
-      <section id="editorPanel" class="panel hidden">
-        <div class="editor-heading">
-          <h2 id="formTitle">Ajouter une œuvre</h2>
-          <button type="button" id="toggleEditorButton">Masquer le formulaire</button>
-        </div>
-        <form id="workForm">
-          <input id="workId" type="hidden">
-
-          <label for="title">Titre *</label>
-          <input id="title" required maxlength="300">
-
-          <label for="authorSelect">Associer un auteur existant</label>
-          <div class="author-entry">
-            <select id="authorSelect">
-              <option value="">Choisir un auteur…</option>
-            </select>
-            <input id="existingAuthorRole" maxlength="80" value="author" aria-label="Rôle de l’auteur associé" placeholder="Rôle">
-            <button type="button" id="addExistingAuthor">Associer</button>
-          </div>
-
-          <label for="newAuthorName">Ou créer un auteur</label>
-          <div class="author-entry author-entry--new">
-            <input id="newAuthorName" maxlength="300" placeholder="Nom de l’auteur">
-            <input id="newAuthorRole" maxlength="80" value="author" aria-label="Rôle de l’auteur" placeholder="Rôle">
-            <button type="button" id="addNewAuthor">Ajouter</button>
-          </div>
-          <div id="selectedAuthors" class="selected-authors" aria-live="polite"></div>
-          <p id="authorStatus" class="field-status" role="status"></p>
-
-          <label for="coverUrl">URL de la couverture</label>
-          <input id="coverUrl" type="url">
-
-          <label for="summary">Résumé</label>
-          <textarea id="summary" rows="4"></textarea>
-
-          <label for="originalLanguage">Langue originale</label>
-          <input id="originalLanguage" maxlength="100">
-
-          <label for="workType">Type d’œuvre</label>
-          <input id="workType" maxlength="100">
-
-          <label class="check">
-            <input id="isPriority" type="checkbox"> Prioritaire
-          </label>
-
-          <fieldset class="status-fields">
-            <legend>Possession</legend>
-            <label class="check">
-              <input id="is_owned" type="checkbox"> Possédé
-            </label>
-            <label class="check">
-              <input id="is_not_owned" type="checkbox"> Non possédé
-            </label>
-          </fieldset>
-
-          <fieldset class="status-fields">
-            <legend>Lecture</legend>
-            <label class="check">
-              <input id="is_read" type="checkbox"> Lu
-            </label>
-            <label class="check">
-              <input id="is_not_read" type="checkbox"> Non lu
-            </label>
-          </fieldset>
-
-          <div class="actions">
-            <button type="submit">Enregistrer l’œuvre</button>
-            <button type="button" id="resetForm">Annuler</button>
-          </div>
-        </form>
-      </section>
-
       <section class="library">
         <div class="library-heading">
           <h2>Mes œuvres</h2>
-          <span id="workCount">0 œuvre</span>
+          <div class="library-heading-actions">
+            <span id="workCount">0 œuvre</span>
+            <button type="button" id="addWorkButton" class="hidden">Ajouter un livre</button>
+          </div>
         </div>
 
         <div class="filters">
@@ -137,6 +68,86 @@
       <p>Dream Library · Une bibliothèque à partager</p>
     </footer>
   </div>
+
+  <template id="workEditorTemplate">
+    <form id="workForm" class="work-editor-form">
+      <input id="workId" type="hidden">
+
+      <section class="editor-section">
+        <h3>Informations générales</h3>
+        <label for="title">Titre *</label>
+        <input id="title" required maxlength="300">
+
+        <label for="coverUrl">URL de couverture</label>
+        <input id="coverUrl" type="url">
+
+        <label for="summary">Résumé</label>
+        <textarea id="summary" rows="7"></textarea>
+
+        <div class="editor-field-grid">
+          <div>
+            <label for="originalLanguage">Langue originale</label>
+            <input id="originalLanguage" maxlength="100">
+          </div>
+          <div>
+            <label for="workType">Type d’œuvre</label>
+            <input id="workType" maxlength="100">
+          </div>
+        </div>
+
+        <label class="check">
+          <input id="isPriority" type="checkbox"> Prioritaire
+        </label>
+
+        <fieldset class="status-fields">
+          <legend>Possession</legend>
+          <label class="check"><input id="is_owned" type="checkbox"> Possédé</label>
+          <label class="check"><input id="is_not_owned" type="checkbox"> Non possédé</label>
+        </fieldset>
+
+        <fieldset class="status-fields">
+          <legend>Lecture</legend>
+          <label class="check"><input id="is_read" type="checkbox"> Lu</label>
+          <label class="check"><input id="is_not_read" type="checkbox"> Non lu</label>
+        </fieldset>
+      </section>
+
+      <section class="editor-section">
+        <h3>Auteurs</h3>
+        <label for="authorSelect">Associer un auteur existant</label>
+        <div class="author-entry">
+          <select id="authorSelect"><option value="">Choisir un auteur…</option></select>
+          <input id="existingAuthorRole" maxlength="80" value="author" aria-label="Rôle de l’auteur associé" placeholder="Rôle">
+          <button type="button" id="addExistingAuthor">Associer</button>
+        </div>
+        <label for="newAuthorName">Créer un auteur</label>
+        <div class="author-entry author-entry--new">
+          <input id="newAuthorName" maxlength="300" placeholder="Nom de l’auteur">
+          <input id="newAuthorRole" maxlength="80" value="author" aria-label="Rôle du nouvel auteur" placeholder="Rôle">
+          <button type="button" id="addNewAuthor">Ajouter</button>
+        </div>
+        <div id="selectedAuthors" class="selected-authors" aria-live="polite"></div>
+        <p id="authorStatus" class="field-status" role="status"></p>
+      </section>
+
+      <section class="editor-section">
+        <h3>Tags et catégories</h3>
+        <label for="tagSelect">Associer un tag existant</label>
+        <div class="author-entry">
+          <select id="tagSelect"><option value="">Choisir un tag…</option></select>
+          <button type="button" id="addWorkTag">Associer</button>
+        </div>
+        <div id="selectedTags" class="selected-authors" aria-live="polite"></div>
+        <p id="tagStatus" class="field-status" role="status"></p>
+      </section>
+
+      <p id="editorMessage" class="editor-message" role="status"></p>
+      <div class="detail-actions">
+        <button type="submit" id="saveWorkButton">Enregistrer le livre</button>
+        <button type="button" id="cancelWorkEditButton" class="secondary-button">Annuler</button>
+      </div>
+    </form>
+  </template>
 
   <script src="./script.js" defer></script>
 </body>
