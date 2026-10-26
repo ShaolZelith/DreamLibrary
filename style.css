@@ -99,6 +99,13 @@ label {
   color: var(--muted);
 }
 
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
 main {
   width: min(1250px, 90%);
   margin: 32px auto 60px;
@@ -299,6 +306,10 @@ footer {
   .header {
     align-items: flex-start;
     padding: 22px 5%;
+  }
+
+  .header-actions {
+    justify-content: flex-end;
   }
 
   .filters {

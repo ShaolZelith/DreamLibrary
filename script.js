@@ -1,4 +1,3 @@
-
 const SUPABASE_URL = "https://itbmwxnqeajiequjdezh.supabase.co";
 const SUPABASE_KEY = "sb_publishable_wyI9gQlY6JxcZ6EskKxCCQ_Of9BZBZF";
 const EDIT_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/dream-library-edit`;
@@ -6,8 +5,8 @@ const EDIT_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/dream-library-edit`;
 const $ = (id) => document.getElementById(id);
 
 let books = [];
-let editPassword = "";
-let editingEnabled = false;
+let accessPassword = "";
+let accessLevel = "";
 
 const escapeHTML = (value = "") =>
   String(value).replace(/[&<>"']/g, (char) => ({
@@ -38,32 +37,40 @@ function normalizeBook(book) {
   };
 }
 
+async function editRequest(action, password = accessPassword, book, id) {
+  const response = await fetch(EDIT_FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_KEY
+    },
+    body: JSON.stringify({
+      password,
+      action,
+      ...(id ? { id } : {}),
+      ...(book ? { book } : {})
+    })
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.error || `Erreur serveur (${response.status})`);
+  }
+
+  return result;
+}
+
 async function loadBooks() {
   showStatus("Chargement de la bibliothèque…");
 
   try {
-    const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/books?select=*&order=created_at.desc`,
-      {
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Erreur de chargement (${response.status})`);
-    }
-
-    books = (await response.json()).map(normalizeBook);
+    const result = await editRequest("list");
+    books = result.books.map(normalizeBook);
     renderBooks();
     showStatus(books.length ? "" : "La bibliothèque est vide. Ajoute ton premier livre !");
   } catch (error) {
-    showStatus(
-      "Impossible de charger les livres. Vérifie la configuration Supabase et les règles RLS.",
-      true
-    );
+    showStatus("Impossible de charger les livres. Vérifie la configuration de la fonction Supabase.", true);
     console.error(error);
   }
 }
@@ -121,7 +128,7 @@ function renderBooks() {
           ${book.publication_year ? `<p>${escapeHTML(book.publication_year)}</p>` : ""}
           ${book.summary ? `<details><summary>Lire le résumé</summary><p>${escapeHTML(book.summary)}</p></details>` : ""}
         </div>
-        ${editingEnabled ? `
+        ${accessLevel === "edit" ? `
           <div class="book-actions">
             <button type="button" data-edit="${escapeHTML(book.id)}">Modifier</button>
             <button type="button" class="delete-button" data-delete="${escapeHTML(book.id)}">Supprimer</button>
@@ -130,7 +137,7 @@ function renderBooks() {
     `;
   }).join("");
 
-  if (editingEnabled) {
+  if (accessLevel === "edit") {
     grid.querySelectorAll("[data-edit]").forEach((button) => {
       button.addEventListener("click", () => {
         const book = books.find((item) => item.id === button.dataset.edit);
@@ -155,17 +162,13 @@ function renderBooks() {
 
 function showEditor() {
   $("editorPanel").classList.remove("hidden");
-  $("editModeButton").textContent = "Mode édition actif";
+  $("editModeButton").textContent = "Quitter le mode édition";
 }
 
 function hideEditor() {
-  editingEnabled = false;
-  editPassword = "";
   $("editorPanel").classList.add("hidden");
-  $("loginPanel").classList.add("hidden");
-  $("editModeButton").textContent = "Mode édition";
+  $("editModeButton").textContent = "Passer en mode édition";
   resetForm();
-  renderBooks();
 }
 
 function resetForm() {
@@ -190,72 +193,105 @@ function fillForm(book) {
   $("editorPanel").scrollIntoView({ behavior: "smooth" });
 }
 
-async function editRequest(action, book, id) {
-  const response = await fetch(EDIT_FUNCTION_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`
-    },
-    body: JSON.stringify({
-      password: editPassword,
-      action,
-      ...(id ? { id } : {}),
-      ...(book ? { book } : {})
-    })
-  });
-
-  const result = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(result.error || `Erreur serveur (${response.status})`);
-  }
-
-  return result;
+function openLogin() {
+  $("loginPage").classList.remove("hidden");
+  $("loginPanel").classList.remove("hidden");
+  $("loginTitle").textContent = accessLevel === "view"
+    ? "Accès éditeur"
+    : "Accès à Dream Library";
+  $("password").focus();
 }
 
-$("editModeButton").addEventListener("click", () => {
-  if (editingEnabled) {
-    hideEditor();
-  } else {
-    $("loginPanel").classList.remove("hidden");
-    $("password").focus();
-  }
-});
-
-$("cancelLogin").addEventListener("click", () => {
+function closeLogin() {
   $("loginPanel").classList.add("hidden");
   $("password").value = "";
   $("loginMessage").textContent = "";
+  if (accessLevel) {
+    $("loginPage").classList.add("hidden");
+  } else {
+    $("loginPanel").classList.remove("hidden");
+  }
+}
+
+function logout() {
+  accessPassword = "";
+  accessLevel = "";
+  books = [];
+  $("appContent").classList.add("hidden");
+  $("loginPage").classList.remove("hidden");
+  $("loginPanel").classList.remove("hidden");
+  $("loginTitle").textContent = "Accès à Dream Library";
+  $("password").value = "";
+  $("loginMessage").textContent = "";
+  $("bookGrid").replaceChildren();
+  $("bookCount").textContent = "0 livre";
+  $("search").value = "";
+  $("readFilter").value = "all";
+  $("ownedFilter").value = "all";
+  hideEditor();
+}
+
+$("editModeButton").addEventListener("click", () => {
+  if (accessLevel === "edit") {
+    if ($("editorPanel").classList.contains("hidden")) {
+      showEditor();
+      $("editorPanel").scrollIntoView({ behavior: "smooth" });
+    } else {
+      hideEditor();
+    }
+    return;
+  }
+
+  openLogin();
+});
+
+$("cancelLogin").addEventListener("click", () => {
+  if (accessLevel) {
+    closeLogin();
+  } else {
+    $("password").value = "";
+    $("loginMessage").textContent = "";
+    $("password").focus();
+  }
 });
 
 $("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  editPassword = $("password").value;
+  const candidatePassword = $("password").value;
+  const submitButton = $("loginForm").querySelector('[type="submit"]');
+  submitButton.disabled = true;
   $("loginMessage").textContent = "Vérification…";
 
   try {
-    // Vérifier le mot de passe sans modifier la base.
-    await editRequest("verify");
-    editingEnabled = true;
-    $("password").value = "";
+    const result = await editRequest("verify", candidatePassword);
+    accessPassword = candidatePassword;
+    accessLevel = result.role;
+    $("loginPage").classList.add("hidden");
+    $("appContent").classList.remove("hidden");
     $("loginPanel").classList.add("hidden");
+    $("password").value = "";
     $("loginMessage").textContent = "";
-    showEditor();
-    renderBooks();
+
+    if (accessLevel === "edit") {
+      showEditor();
+    } else {
+      hideEditor();
+    }
+
+    await loadBooks();
   } catch (error) {
-    editPassword = "";
     $("loginMessage").textContent = error.message === "Mot de passe incorrect"
       ? "Mot de passe incorrect."
-      : "La vérification a échoué. La fonction Supabase doit prendre en charge l'action verify.";
+      : "La vérification a échoué. Vérifie la configuration de la fonction Supabase.";
+  } finally {
+    submitButton.disabled = false;
   }
 });
 
 $("bookForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!editingEnabled || !editPassword) return;
+  if (accessLevel !== "edit" || !accessPassword) return;
 
   const title = $("title").value.trim();
   if (!title) {
@@ -280,7 +316,7 @@ $("bookForm").addEventListener("submit", async (event) => {
   submitButton.disabled = true;
 
   try {
-    await editRequest(id ? "update" : "create", book, id);
+    await editRequest(id ? "update" : "create", accessPassword, book, id);
     resetForm();
     await loadBooks();
     showStatus(id ? "Livre modifié !" : "Livre ajouté !");
@@ -292,10 +328,10 @@ $("bookForm").addEventListener("submit", async (event) => {
 });
 
 async function deleteBook(id) {
-  if (!editingEnabled || !confirm("Supprimer ce livre ?")) return;
+  if (accessLevel !== "edit" || !confirm("Supprimer ce livre ?")) return;
 
   try {
-    await editRequest("delete", null, id);
+    await editRequest("delete", accessPassword, null, id);
     await loadBooks();
     showStatus("Livre supprimé.");
   } catch (error) {
@@ -304,11 +340,9 @@ async function deleteBook(id) {
 }
 
 $("resetForm").addEventListener("click", resetForm);
-$("logoutButton").addEventListener("click", hideEditor);
+$("logoutButton").addEventListener("click", logout);
 
 ["search", "readFilter", "ownedFilter"].forEach((id) => {
   $(id).addEventListener("input", renderBooks);
   $(id).addEventListener("change", renderBooks);
 });
-
-loadBooks();
