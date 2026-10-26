@@ -126,6 +126,24 @@ main {
   font-family: Georgia, serif;
 }
 
+.editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-heading h2 {
+  margin-bottom: 0;
+}
+
+.editor-heading button {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  background: #eae4de;
+  color: var(--text);
+}
+
 .hidden {
   display: none !important;
 }
@@ -148,6 +166,53 @@ main {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 22px;
+}
+
+.author-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.author-entry + label {
+  margin-top: 20px;
+}
+
+.author-entry--new {
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 190px) auto;
+}
+
+.field-status {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+#newAuthorRole {
+  max-width: 190px;
+}
+
+.selected-authors {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.selected-author {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #faf8f5;
+}
+
+.selected-author button {
+  padding: 5px 9px;
+  background: #f2e4e1;
+  color: var(--danger);
 }
 
 #cancelLogin,
@@ -312,8 +377,29 @@ footer {
     justify-content: flex-end;
   }
 
+  .editor-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .filters {
     grid-template-columns: 1fr;
+  }
+
+  .author-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .author-entry--new {
+    grid-template-columns: 1fr;
+  }
+
+  .author-entry:not(.author-entry--new) {
+    grid-template-columns: 1fr;
+  }
+
+  #newAuthorRole {
+    max-width: none;
   }
 
   .book-grid {

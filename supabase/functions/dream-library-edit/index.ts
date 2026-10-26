@@ -11,8 +11,76 @@ const allowedFields = [
   "pages", "publication_year", "is_read", "is_owned",
 ];
 
+const allowedWorkFields = [
+  "title", "summary", "cover_url", "original_language", "work_type", "is_priority",
+];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function cleanWork(value: Record<string, unknown>) {
+  const result: Record<string, unknown> = {};
+  for (const field of allowedWorkFields) {
+    if (field in value) result[field] = value[field];
+  }
+  return result;
+}
+
+interface WorkAuthorInput {
+  id?: string;
+  name: string;
+  role: string;
+  position: number;
+}
+
+function parseWorkAuthors(value: unknown): WorkAuthorInput[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const parsed: WorkAuthorInput[] = [];
+  const seen = new Set<string>();
+
+  for (let index = 0; index < value.length; index += 1) {
+    const author = value[index];
+    if (
+      !isRecord(author) ||
+      typeof author.name !== "string" ||
+      (author.id !== undefined && typeof author.id !== "string")
+    ) return null;
+
+    const name = author.name.trim();
+    const role = typeof author.role === "string" && author.role.trim()
+      ? author.role.trim()
+      : "author";
+    const position = author.position === undefined ? index + 1 : author.position;
+
+    if (
+      !name ||
+      name.length > 300 ||
+      role.length > 80 ||
+      !Number.isInteger(position) ||
+      (position as number) < 1 ||
+      (author.id !== undefined && !isUuid(author.id))
+    ) {
+      return null;
+    }
+
+    const key = `${author.id || name.toLocaleLowerCase("fr")}\u0000${role.toLocaleLowerCase("fr")}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    parsed.push({
+      ...(typeof author.id === "string" ? { id: author.id } : {}),
+      name,
+      role,
+      position: position as number,
+    });
+  }
+
+  return parsed;
 }
 
 function reply(data: unknown, status = 200) {
@@ -20,6 +88,18 @@ function reply(data: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function replyDatabaseError(action: string, message: string, error: unknown) {
+  console.error(`${action} failed`, error);
+  const databaseError = isRecord(error) ? error : {};
+  return reply({
+    error: message,
+    ...(typeof databaseError.code === "string" ? { code: databaseError.code } : {}),
+    ...(typeof databaseError.message === "string"
+      ? { details: databaseError.message }
+      : {}),
+  }, 400);
 }
 
 Deno.serve(async (req) => {
@@ -37,7 +117,7 @@ Deno.serve(async (req) => {
       return reply({ error: "Requête invalide" }, 400);
     }
 
-    const { password, action, id, book } = body;
+    const { password, action, id, book, work } = body;
     const viewPassword = Deno.env.get("DREAM_LIBRARY_VIEW_PASSWORD");
     const editPassword = Deno.env.get("DREAM_LIBRARY_PASSWORD");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -68,6 +148,322 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
+
+    if (action === "works_list") {
+      const { data: works, error: worksError } = await supabase
+        .from("works")
+        .select("id, title, summary, cover_url, original_language, work_type, is_priority, created_at")
+        .order("created_at", { ascending: false });
+
+      if (worksError) {
+        return replyDatabaseError("works_list", "Impossible de charger les œuvres", worksError);
+      }
+
+      const workIds = works.map((work) => work.id);
+      if (!workIds.length) return reply({ works: [] });
+
+      const { data: links, error: linksError } = await supabase
+        .from("work_authors")
+        .select("work_id, author_id, role, position")
+        .in("work_id", workIds)
+        .order("position", { ascending: true });
+
+      if (linksError) {
+        return replyDatabaseError(
+          "works_list",
+          "Impossible de charger les auteurs des œuvres",
+          linksError,
+        );
+      }
+
+      const authorIds = [...new Set(links.map((link) => link.author_id))];
+      const { data: authors, error: authorsError } = authorIds.length
+        ? await supabase.from("authors").select("id, name").in("id", authorIds)
+        : { data: [], error: null };
+
+      if (authorsError) {
+        return replyDatabaseError("works_list", "Impossible de charger les auteurs", authorsError);
+      }
+
+      const authorsById = new Map(authors.map((author) => [author.id, author]));
+      const authorsByWork = new Map<string, {
+        id: string;
+        name: string;
+        role: string;
+        position: number;
+      }[]>();
+
+      for (const link of links) {
+        const author = authorsById.get(link.author_id);
+        if (!author) continue;
+        const workAuthors = authorsByWork.get(link.work_id) || [];
+        workAuthors.push({
+          id: author.id,
+          name: author.name,
+          role: link.role,
+          position: link.position,
+        });
+        authorsByWork.set(link.work_id, workAuthors);
+      }
+
+      return reply({
+        works: works.map((work) => ({
+          ...work,
+          authors: authorsByWork.get(work.id) || [],
+        })),
+      });
+    }
+
+    if (action === "works_authors_get") {
+      if (typeof id !== "string") {
+        return reply({ error: "Identifiant d’œuvre invalide" }, 400);
+      }
+
+      const { data: links, error: linksError } = await supabase
+        .from("work_authors")
+        .select("author_id, role, position")
+        .eq("work_id", id)
+        .order("position", { ascending: true });
+
+      if (linksError) {
+        return replyDatabaseError(
+          "works_authors_get",
+          "Impossible de charger les auteurs de l’œuvre",
+          linksError,
+        );
+      }
+
+      const authorIds = links.map((link) => link.author_id);
+      const { data: authors, error: authorsError } = authorIds.length
+        ? await supabase.from("authors").select("id, name").in("id", authorIds)
+        : { data: [], error: null };
+
+      if (authorsError) {
+        return replyDatabaseError(
+          "works_authors_get",
+          "Impossible de charger les auteurs",
+          authorsError,
+        );
+      }
+
+      const authorsById = new Map(authors.map((author) => [author.id, author]));
+      return reply({
+        authors: links.flatMap((link) => {
+          const author = authorsById.get(link.author_id);
+          return author
+            ? [{ id: author.id, name: author.name, role: link.role, position: link.position }]
+            : [];
+        }),
+      });
+    }
+
+    if (action === "authors_list") {
+      const { data, error } = await supabase
+        .from("authors")
+        .select("id, name")
+        .order("name", { ascending: true });
+
+      if (error) return replyDatabaseError("authors_list", "Impossible de charger les auteurs", error);
+      return reply({ authors: data });
+    }
+
+    if (action === "works_create") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (!isRecord(work) || typeof work.title !== "string" || !work.title.trim()) {
+        return reply({ error: "Le titre de l’œuvre est obligatoire" }, 400);
+      }
+
+      const { data, error } = await supabase
+        .from("works").insert(cleanWork(work)).select().single();
+
+      if (error) return replyDatabaseError("works_create", "Impossible d'ajouter l’œuvre", error);
+      return reply({ work: data }, 201);
+    }
+
+    if (action === "works_update") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (typeof id !== "string" || !isRecord(work)) {
+        return reply({ error: "Données d’œuvre invalides" }, 400);
+      }
+
+      const updates = cleanWork(work);
+      if (typeof updates.title !== "string" || !updates.title.trim()) {
+        return reply({ error: "Le titre de l’œuvre est obligatoire" }, 400);
+      }
+
+      const { data, error } = await supabase
+        .from("works").update(updates).eq("id", id).select().single();
+
+      if (error) return replyDatabaseError("works_update", "Impossible de modifier l’œuvre", error);
+      return reply({ work: data });
+    }
+
+    if (action === "works_delete") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (typeof id !== "string" || !isUuid(id)) {
+        return reply({ error: "Identifiant d’œuvre invalide" }, 400);
+      }
+
+      const { data, error } = await supabase
+        .from("works").delete().eq("id", id).select("id").maybeSingle();
+
+      if (error) {
+        return replyDatabaseError("works_delete", "Impossible de supprimer l’œuvre", error);
+      }
+      if (!data) return reply({ error: "Œuvre introuvable" }, 404);
+      return reply({ deleted: data.id });
+    }
+
+    if (action === "works_authors_set") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (typeof id !== "string") {
+        return reply({ error: "Identifiant d’œuvre invalide" }, 400);
+      }
+
+      const workAuthors = parseWorkAuthors(body.authors);
+      if (!workAuthors) {
+        return reply({ error: "Liste d’auteurs invalide ou contenant des doublons" }, 400);
+      }
+
+      const { data: work, error: workError } = await supabase
+        .from("works").select("id").eq("id", id).maybeSingle();
+      if (workError) {
+        return replyDatabaseError(
+          "works_authors_set",
+          "Impossible de vérifier l’œuvre",
+          workError,
+        );
+      }
+      if (!work) return reply({ error: "Œuvre introuvable" }, 404);
+
+      const { data: existingLinks, error: existingError } = await supabase
+        .from("work_authors")
+        .select("author_id, role")
+        .eq("work_id", id);
+      if (existingError) {
+        return replyDatabaseError(
+          "works_authors_set",
+          "Impossible de lire les auteurs existants",
+          existingError,
+        );
+      }
+
+      const selectedAuthorIds = [...new Set(
+        workAuthors.flatMap((author) => author.id ? [author.id] : []),
+      )];
+      const authorIdsByName = new Map<string, string>();
+      if (selectedAuthorIds.length) {
+        const { data: selectedRows, error: selectedError } = await supabase
+          .from("authors")
+          .select("id, name")
+          .in("id", selectedAuthorIds);
+        if (selectedError) {
+          return replyDatabaseError(
+            "works_authors_set",
+            "Impossible de vérifier les auteurs sélectionnés",
+            selectedError,
+          );
+        }
+        if (selectedRows.length !== selectedAuthorIds.length) {
+          return reply({ error: "Un auteur sélectionné n’existe plus" }, 400);
+        }
+        for (const author of selectedRows) {
+          authorIdsByName.set(author.name, author.id);
+        }
+      }
+
+      const newAuthorNames = [...new Set(
+        workAuthors.filter((author) => !author.id).map(({ name }) => name),
+      )];
+      if (newAuthorNames.length) {
+        const authorRows = newAuthorNames
+          .map((name) => ({ name }));
+        const { data: savedAuthors, error: saveAuthorsError } = await supabase
+          .from("authors")
+          .upsert(authorRows, { onConflict: "name" })
+          .select("id, name");
+
+        if (saveAuthorsError) {
+          return replyDatabaseError(
+            "works_authors_set",
+            "Impossible d'enregistrer les auteurs",
+            saveAuthorsError,
+          );
+        }
+        for (const author of savedAuthors) {
+          authorIdsByName.set(author.name, author.id);
+        }
+      }
+
+      const newLinks: {
+        work_id: string;
+        author_id: string;
+        role: string;
+        position: number;
+      }[] = [];
+      for (const author of workAuthors) {
+        const authorId = author.id || authorIdsByName.get(author.name);
+        if (!authorId) {
+          return reply({ error: "Un auteur n’a pas pu être retrouvé après enregistrement" }, 400);
+        }
+        newLinks.push({
+          work_id: id,
+          author_id: authorId,
+          role: author.role,
+          position: author.position,
+        });
+      }
+
+      if (newLinks.length) {
+        const { error: saveLinksError } = await supabase
+          .from("work_authors")
+          .upsert(newLinks, { onConflict: "work_id,author_id,role" });
+        if (saveLinksError) {
+          return replyDatabaseError(
+            "works_authors_set",
+            "Impossible d'enregistrer les liens d’auteurs",
+            saveLinksError,
+          );
+        }
+      }
+
+      const retainedKeys = new Set(
+        newLinks.map((link) => `${link.author_id}\u0000${link.role}`),
+      );
+      for (const link of existingLinks) {
+        if (retainedKeys.has(`${link.author_id}\u0000${link.role}`)) continue;
+        const { error: deleteLinkError } = await supabase
+          .from("work_authors")
+          .delete()
+          .eq("work_id", id)
+          .eq("author_id", link.author_id)
+          .eq("role", link.role);
+        if (deleteLinkError) {
+          return replyDatabaseError(
+            "works_authors_set",
+            "Certains anciens liens d’auteurs n’ont pas pu être retirés",
+            deleteLinkError,
+          );
+        }
+      }
+
+      return reply({
+        authors: newLinks.map((link, index) => ({
+          id: link.author_id,
+          name: workAuthors[index].name,
+          role: link.role,
+          position: link.position,
+        })),
+      });
+    }
 
     if (action === "list") {
       const { data, error } = await supabase

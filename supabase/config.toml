@@ -1,0 +1,3 @@
+[functions.dream-library-edit]
+# The function performs its own password and role checks.
+verify_jwt = false
