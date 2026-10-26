@@ -320,7 +320,7 @@ function getAuthorsForSubmission() {
     authors.push({
       id: author.id,
       name: author.name,
-      role: $("existingAuthorRole").value.trim() || "author"
+      role: "author"
     });
   }
 
@@ -328,7 +328,7 @@ function getAuthorsForSubmission() {
   if (newName) {
     authors.push({
       name: newName,
-      role: $("newAuthorRole").value.trim() || "author"
+      role: "author"
     });
   }
 
@@ -1039,24 +1039,20 @@ document.addEventListener("click", (event) => {
       showAuthorStatus("Choisis un auteur existant dans la liste.", true);
       return;
     }
-    const role = $("existingAuthorRole").value.trim() || "author";
-    if (addSelectedAuthor({ id: author.id, name: author.name, role })) {
+    if (addSelectedAuthor({ id: author.id, name: author.name, role: "author" })) {
       $("authorSelect").value = "";
-      $("existingAuthorRole").value = "author";
     }
   }
 
   if (target.closest("#addNewAuthor")) {
     if (accessLevel !== "edit") return;
     const name = $("newAuthorName").value.trim();
-    const role = $("newAuthorRole").value.trim() || "author";
     if (!name) {
       showAuthorStatus("Saisis le nom du nouvel auteur.", true);
       return;
     }
-    if (addSelectedAuthor({ name, role })) {
+    if (addSelectedAuthor({ name, role: "author" })) {
       $("newAuthorName").value = "";
-      $("newAuthorRole").value = "author";
     }
   }
 

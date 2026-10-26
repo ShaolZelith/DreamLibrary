@@ -14,6 +14,8 @@ const constraintsSnapshot = readFileSync(
   new URL("../schema_constraints.txt", import.meta.url),
   "utf8",
 );
+const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const frontend = readFileSync(new URL("../script.js", import.meta.url), "utf8");
 
 function hasColumn(table, column) {
   return columnsSnapshot.split(/\r?\n/).some((line) => {
@@ -141,4 +143,12 @@ test("database schema errors are not converted to empty optional results", () =>
 
 test("relations have no current write action to exercise", () => {
   assert.doesNotMatch(edgeFunction, /action === "work_relations_(create|set|delete)"/);
+});
+
+test("author editor hides role fields and defaults created associations to author", () => {
+  assert.match(html, /id="authorSelect"[\s\S]*?id="addExistingAuthor"/);
+  assert.match(html, /id="newAuthorName"[\s\S]*?id="addNewAuthor"/);
+  assert.doesNotMatch(html, /id="(?:existingAuthorRole|newAuthorRole)"/);
+  assert.doesNotMatch(frontend, /\$\("(?:existingAuthorRole|newAuthorRole)"\)/);
+  assert.match(frontend, /role: "author"/);
 });

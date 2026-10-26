@@ -195,18 +195,10 @@ main {
   margin-top: 20px;
 }
 
-.author-entry--new {
-  grid-template-columns: minmax(0, 1fr) minmax(100px, 190px) auto;
-}
-
 .field-status {
   margin: 8px 0 0;
   color: var(--muted);
   font-size: 0.88rem;
-}
-
-#newAuthorRole {
-  max-width: 190px;
 }
 
 .selected-authors {
@@ -645,18 +637,6 @@ footer {
 
   .author-entry {
     grid-template-columns: 1fr;
-  }
-
-  .author-entry--new {
-    grid-template-columns: 1fr;
-  }
-
-  .author-entry:not(.author-entry--new) {
-    grid-template-columns: 1fr;
-  }
-
-  #newAuthorRole {
-    max-width: none;
   }
 
   .book-grid {

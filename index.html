@@ -117,13 +117,11 @@
         <label for="authorSelect">Associer un auteur existant</label>
         <div class="author-entry">
           <select id="authorSelect"><option value="">Choisir un auteur…</option></select>
-          <input id="existingAuthorRole" maxlength="80" value="author" aria-label="Rôle de l’auteur associé" placeholder="Rôle">
           <button type="button" id="addExistingAuthor">Associer</button>
         </div>
         <label for="newAuthorName">Créer un auteur</label>
-        <div class="author-entry author-entry--new">
+        <div class="author-entry">
           <input id="newAuthorName" maxlength="300" placeholder="Nom de l’auteur">
-          <input id="newAuthorRole" maxlength="80" value="author" aria-label="Rôle du nouvel auteur" placeholder="Rôle">
           <button type="button" id="addNewAuthor">Ajouter</button>
         </div>
         <div id="selectedAuthors" class="selected-authors" aria-live="polite"></div>
