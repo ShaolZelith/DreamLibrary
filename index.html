@@ -1,0 +1,107 @@
+
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dream Library</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>📚 Dream Library</h1>
+      <p>Ma bibliothèque, mes histoires.</p>
+    </div>
+    <button id="editModeButton">Mode édition</button>
+  </header>
+
+  <main>
+    <section id="loginPanel" class="panel hidden">
+      <h2>Accès éditeur</h2>
+      <form id="loginForm">
+        <label for="password">Mot de passe</label>
+        <input id="password" type="password" required autocomplete="current-password">
+        <button type="submit">Déverrouiller</button>
+        <button type="button" id="cancelLogin">Annuler</button>
+      </form>
+      <p id="loginMessage" role="status"></p>
+    </section>
+
+    <section id="editorPanel" class="panel hidden">
+      <h2 id="formTitle">Ajouter un livre</h2>
+      <form id="bookForm">
+        <input id="bookId" type="hidden">
+
+        <label for="title">Titre *</label>
+        <input id="title" required maxlength="300">
+
+        <label for="author">Auteur</label>
+        <input id="author" maxlength="300">
+
+        <label for="coverUrl">URL de la couverture</label>
+        <input id="coverUrl" type="url">
+
+        <label for="summary">Résumé</label>
+        <textarea id="summary" rows="4"></textarea>
+
+        <label for="genre">Genre</label>
+        <input id="genre">
+
+        <label for="pages">Nombre de pages</label>
+        <input id="pages" type="number" min="1">
+
+        <label for="year">Année de publication</label>
+        <input id="year" type="number" min="0" max="2100">
+
+        <label class="check">
+          <input id="isRead" type="checkbox"> Lu
+        </label>
+
+        <label class="check">
+          <input id="isOwned" type="checkbox"> Possédé
+        </label>
+
+        <div class="actions">
+          <button type="submit">Enregistrer le livre</button>
+          <button type="button" id="resetForm">Annuler</button>
+          <button type="button" id="logoutButton">Quitter le mode édition</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="library">
+      <div class="library-heading">
+        <h2>Ma bibliothèque</h2>
+        <span id="bookCount">0 livre</span>
+      </div>
+
+      <div class="filters">
+        <input id="search" type="search" placeholder="Rechercher un titre ou un auteur…">
+
+        <select id="readFilter">
+          <option value="all">Tous les statuts de lecture</option>
+          <option value="true">Lu</option>
+          <option value="false">Non lu</option>
+        </select>
+
+        <select id="ownedFilter">
+          <option value="all">Tous les statuts de possession</option>
+          <option value="true">Possédé</option>
+          <option value="false">Non possédé</option>
+        </select>
+      </div>
+
+      <p id="statusMessage" role="status">Chargement de la bibliothèque…</p>
+      <div id="bookGrid" class="book-grid"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Dream Library · Une bibliothèque à partager</p>
+  </footer>
+
+  <script src="./script.js" defer></script>
+</body>
+</html>
