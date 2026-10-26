@@ -136,6 +136,18 @@
           <button type="button" id="addWorkTag">Associer</button>
         </div>
         <div id="selectedTags" class="selected-authors" aria-live="polite"></div>
+        <label for="newTagName">Créer un tag</label>
+        <div class="tag-create-entry">
+          <input id="newTagName" placeholder="Nom du tag">
+          <select id="newTagCategory" aria-label="Catégorie du nouveau tag">
+            <option value="">Choisir une catégorie…</option>
+            <option value="genre">Genre</option>
+            <option value="theme">Thème</option>
+            <option value="place">Lieu</option>
+            <option value="period">Période</option>
+          </select>
+          <button type="button" id="createWorkTag">Ajouter</button>
+        </div>
         <p id="tagStatus" class="field-status" role="status"></p>
       </section>
 

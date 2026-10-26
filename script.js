@@ -1030,7 +1030,7 @@ document.addEventListener("change", (event) => {
   }
 });
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const target = event.target;
   if (target.closest("#addExistingAuthor")) {
     if (accessLevel !== "edit") return;
@@ -1069,6 +1069,83 @@ document.addEventListener("click", (event) => {
       showTagStatus("");
     }
     $("tagSelect").value = "";
+  }
+
+  if (target.closest("#createWorkTag")) {
+    if (accessLevel !== "edit") return;
+    const name = $("newTagName").value.trim();
+    const category = $("newTagCategory").value;
+    if (!name) {
+      showTagStatus("Saisis le nom du tag.", true);
+      return;
+    }
+    if (!["genre", "theme", "place", "period"].includes(category)) {
+      showTagStatus("Choisis une catégorie valide pour le tag.", true);
+      return;
+    }
+
+    const button = $("createWorkTag");
+    button.disabled = true;
+    try {
+      const result = await editRequest(
+        "tags_create",
+        accessPassword,
+        null,
+        null,
+        { name, category }
+      );
+      if (
+        !result.tag ||
+        typeof result.tag.id !== "string" ||
+        result.tag.name !== name ||
+        result.tag.category !== category
+      ) {
+        throw new Error("La fonction n’a pas confirmé la création ou la réutilisation du tag.");
+      }
+
+      let refreshError = "";
+      try {
+        await loadTags();
+      } catch (error) {
+        refreshError = error.message;
+        if (!availableTags.some((tag) => tag.id === result.tag.id)) {
+          availableTags.push(result.tag);
+        }
+        console.error("Refreshing tags after creation failed", error);
+      }
+
+      if (!availableTags.some((tag) => tag.id === result.tag.id)) {
+        availableTags.push(result.tag);
+      }
+      renderTagOptions();
+      if (!selectedTags.some((tag) => tag.id === result.tag.id)) {
+        selectedTags.push(result.tag);
+        tagsEdited = true;
+        renderSelectedTags();
+      }
+      $("newTagName").value = "";
+      $("newTagCategory").value = "";
+      if (result.created === false) {
+        showTagStatus(
+          `Ce tag existait déjà dans cette catégorie. Il a été réutilisé et ajouté à la fiche. Enregistre le livre pour sauvegarder son association.${refreshError
+            ? ` La liste n’a pas pu être actualisée : ${refreshError}`
+            : ""}`,
+          Boolean(refreshError)
+        );
+      } else {
+        showTagStatus(
+          `Tag créé et ajouté à la fiche. Enregistre le livre pour sauvegarder son association.${refreshError
+            ? ` La liste n’a pas pu être actualisée : ${refreshError}`
+            : ""}`,
+          Boolean(refreshError)
+        );
+      }
+    } catch (error) {
+      showTagStatus(error.message || "Impossible de créer le tag.", true);
+      console.error("tags_create failed", error);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   const removeTag = target.closest("[data-remove-tag]");

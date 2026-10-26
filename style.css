@@ -195,6 +195,16 @@ main {
   margin-top: 20px;
 }
 
+.tag-create-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) auto;
+  gap: 9px;
+}
+
+.tag-create-entry + .field-status {
+  margin-top: 8px;
+}
+
 .field-status {
   margin: 8px 0 0;
   color: var(--muted);
@@ -636,6 +646,10 @@ footer {
   }
 
   .author-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .tag-create-entry {
     grid-template-columns: 1fr;
   }
 

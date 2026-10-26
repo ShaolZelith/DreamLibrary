@@ -117,8 +117,25 @@ test("tag updates insert and delete through the confirmed join table", () => {
   assert.match(setTags, /\.from\("tags"\)\.select\("id"\)\.in\("id", tagIds\)/);
 });
 
+test("tag creation validates edit access and reuses the unique category/name pair", () => {
+  const createTag = actionBlock("tags_create");
+  assert.match(createTag, /role !== "edit"/);
+  assert.match(createTag, /!body\.name\.trim\(\)/);
+  for (const category of ["genre", "theme", "place", "period"]) {
+    assert.match(createTag, new RegExp(`"${category}"`));
+  }
+  assert.match(createTag, /\.eq\("category", category\)\s*\.eq\("name", name\)\s*\.maybeSingle\(\)/);
+  assert.match(createTag, /\.from\("tags"\)\s*\.insert\(\{ name, category \}\)/);
+  assert.match(createTag, /createError\.code === "23505"/);
+  assert.match(constraintsSnapshot, /UNIQUE \(category, name\)/);
+  assert.match(frontend, /editRequest\(\s*"tags_create"/);
+  assert.match(frontend, /selectedTags\.push\(result\.tag\)/);
+  assert.match(frontend, /await loadTags\(\)/);
+});
+
 test("every write action requires edit role", () => {
   for (const action of [
+    "tags_create",
     "works_tags_set",
     "works_create",
     "works_update",
@@ -151,4 +168,13 @@ test("author editor hides role fields and defaults created associations to autho
   assert.doesNotMatch(html, /id="(?:existingAuthorRole|newAuthorRole)"/);
   assert.doesNotMatch(frontend, /\$\("(?:existingAuthorRole|newAuthorRole)"\)/);
   assert.match(frontend, /role: "author"/);
+});
+
+test("tag editor offers exactly the four confirmed categories", () => {
+  const tagEditor = html.slice(html.indexOf('id="newTagCategory"'), html.indexOf("</select>", html.indexOf('id="newTagCategory"')));
+  assert.match(tagEditor, /value="genre">Genre/);
+  assert.match(tagEditor, /value="theme">Thème/);
+  assert.match(tagEditor, /value="place">Lieu/);
+  assert.match(tagEditor, /value="period">Période/);
+  assert.doesNotMatch(tagEditor, /value="(?:author|topic|location)"/);
 });

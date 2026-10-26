@@ -476,6 +476,60 @@ Deno.serve(async (req) => {
       return reply({ tags: data });
     }
 
+    if (action === "tags_create") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+
+      const validCategories = ["genre", "theme", "place", "period"];
+      if (
+        typeof body.name !== "string" ||
+        !body.name.trim() ||
+        typeof body.category !== "string" ||
+        !validCategories.includes(body.category)
+      ) {
+        return reply({ error: "Nom ou catégorie de tag invalide" }, 400);
+      }
+
+      const name = body.name.trim();
+      const category = body.category;
+      const { data: existingTag, error: existingTagError } = await supabase
+        .from("tags")
+        .select("id, name, category")
+        .eq("category", category)
+        .eq("name", name)
+        .maybeSingle();
+      if (existingTagError) {
+        return replyDatabaseError("tags_create", "Impossible de vérifier si le tag existe", existingTagError);
+      }
+      if (existingTag) return reply({ tag: existingTag, created: false });
+
+      const { data: createdTag, error: createError } = await supabase
+        .from("tags")
+        .insert({ name, category })
+        .select("id, name, category")
+        .single();
+      if (createError) {
+        if (createError.code === "23505") {
+          const { data: concurrentTag, error: concurrentTagError } = await supabase
+            .from("tags")
+            .select("id, name, category")
+            .eq("category", category)
+            .eq("name", name)
+            .maybeSingle();
+          if (concurrentTagError) {
+            return replyDatabaseError("tags_create", "Impossible de relire le tag existant", concurrentTagError);
+          }
+          if (concurrentTag) return reply({ tag: concurrentTag, created: false });
+        }
+        return replyDatabaseError("tags_create", "Impossible de créer le tag", createError);
+      }
+      if (!createdTag) {
+        return reply({ error: "La base n’a pas confirmé la création du tag" }, 500);
+      }
+      return reply({ tag: createdTag, created: true });
+    }
+
     if (action === "works_tags_set") {
       if (role !== "edit") {
         return reply({ error: "Droits d’édition insuffisants" }, 403);
