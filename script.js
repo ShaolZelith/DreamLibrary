@@ -39,8 +39,16 @@ function normalizeWork(work) {
     original_language: work.original_language || "",
     work_type: work.work_type || "",
     is_priority: Boolean(work.is_priority),
+    is_read: typeof work.is_read === "boolean" ? work.is_read : null,
+    is_owned: typeof work.is_owned === "boolean" ? work.is_owned : null,
     authors: Array.isArray(work.authors) ? work.authors : []
   };
+}
+
+function selectedBoolean(checkedValue, uncheckedValue) {
+  if ($(checkedValue).checked) return true;
+  if ($(uncheckedValue).checked) return false;
+  return null;
 }
 
 async function editRequest(action, password = accessPassword, payload, id, extra = {}) {
@@ -268,6 +276,10 @@ function renderWorks() {
             ${work.work_type ? `<span class="badge">${escapeHTML(work.work_type)}</span>` : ""}
             ${work.original_language ? `<span class="badge">${escapeHTML(work.original_language)}</span>` : ""}
             ${work.is_priority ? '<span class="badge owned">Prioritaire</span>' : ""}
+            ${work.is_owned === true ? '<span class="badge owned">Possédé</span>' : ""}
+            ${work.is_owned === false ? '<span class="badge not-owned">Non possédé</span>' : ""}
+            ${work.is_read === true ? '<span class="badge read">Lu</span>' : ""}
+            ${work.is_read === false ? '<span class="badge not-read">Non lu</span>' : ""}
           </div>
           ${work.summary ? `<details><summary>Lire le résumé</summary><p>${escapeHTML(work.summary)}</p></details>` : ""}
         </div>
@@ -341,6 +353,10 @@ function fillForm(work) {
   $("originalLanguage").value = work.original_language;
   $("workType").value = work.work_type;
   $("isPriority").checked = work.is_priority;
+  $("is_owned").checked = work.is_owned === true;
+  $("is_not_owned").checked = work.is_owned === false;
+  $("is_read").checked = work.is_read === true;
+  $("is_not_read").checked = work.is_read === false;
   $("formTitle").textContent = "Modifier une œuvre";
   showEditor();
   $("editorPanel").scrollIntoView({ behavior: "smooth" });
@@ -522,7 +538,9 @@ $("workForm").addEventListener("submit", async (event) => {
     cover_url: $("coverUrl").value.trim() || null,
     original_language: $("originalLanguage").value.trim() || null,
     work_type: $("workType").value.trim() || null,
-    is_priority: $("isPriority").checked
+    is_priority: $("isPriority").checked,
+    is_owned: selectedBoolean("is_owned", "is_not_owned"),
+    is_read: selectedBoolean("is_read", "is_not_read")
   };
   const id = $("workId").value;
   const submitButton = $("workForm").querySelector('[type="submit"]');
@@ -581,6 +599,17 @@ $("workForm").addEventListener("submit", async (event) => {
       return;
     }
     const savedWork = works.find((item) => item.id === savedId);
+    if (
+      !savedWork ||
+      savedWork.is_owned !== work.is_owned ||
+      savedWork.is_read !== work.is_read
+    ) {
+      showStatus(
+        "Œuvre enregistrée, mais les statuts Lu/Non lu et Possédé/Non possédé ne correspondent pas aux valeurs relues depuis Supabase. Vérifie le déploiement de l’Edge Function.",
+        true
+      );
+      return;
+    }
     const missingAuthor = authorsToSave.find((selected) =>
       !savedWork?.authors.some((author) =>
         (selected.id ? author.id === selected.id : author.name === selected.name) &&
@@ -629,6 +658,20 @@ async function deleteWork(id) {
 
 $("resetForm").addEventListener("click", resetForm);
 $("logoutButton").addEventListener("click", logout);
+
+[
+  ["is_owned", "is_not_owned"],
+  ["is_read", "is_not_read"]
+].forEach(([positiveId, negativeId]) => {
+  const positive = $(positiveId);
+  const negative = $(negativeId);
+  positive.addEventListener("change", () => {
+    if (positive.checked) negative.checked = false;
+  });
+  negative.addEventListener("change", () => {
+    if (negative.checked) positive.checked = false;
+  });
+});
 
 renderSelectedAuthors();
 

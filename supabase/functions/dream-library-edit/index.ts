@@ -13,6 +13,7 @@ const allowedFields = [
 
 const allowedWorkFields = [
   "title", "summary", "cover_url", "original_language", "work_type", "is_priority",
+  "is_read", "is_owned",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -29,6 +30,16 @@ function cleanWork(value: Record<string, unknown>) {
     if (field in value) result[field] = value[field];
   }
   return result;
+}
+
+function hasValidWorkStatuses(
+  value: Record<string, unknown>,
+  requireStatuses = false,
+): boolean {
+  return ["is_read", "is_owned"].every((field) =>
+    (field in value || !requireStatuses) &&
+      (!(field in value) || value[field] === null || typeof value[field] === "boolean")
+  );
 }
 
 interface WorkAuthorInput {
@@ -152,7 +163,7 @@ Deno.serve(async (req) => {
     if (action === "works_list") {
       const { data: works, error: worksError } = await supabase
         .from("works")
-        .select("id, title, summary, cover_url, original_language, work_type, is_priority, created_at")
+        .select("id, title, summary, cover_url, original_language, work_type, is_priority, is_read, is_owned, created_at")
         .order("created_at", { ascending: false });
 
       if (worksError) {
@@ -274,6 +285,11 @@ Deno.serve(async (req) => {
       if (!isRecord(work) || typeof work.title !== "string" || !work.title.trim()) {
         return reply({ error: "Le titre de l’œuvre est obligatoire" }, 400);
       }
+      if (!hasValidWorkStatuses(work, true)) {
+        return reply({
+          error: "Les statuts de lecture et de possession doivent être fournis comme booléens ou null",
+        }, 400);
+      }
 
       const { data, error } = await supabase
         .from("works").insert(cleanWork(work)).select().single();
@@ -288,6 +304,11 @@ Deno.serve(async (req) => {
       }
       if (typeof id !== "string" || !isRecord(work)) {
         return reply({ error: "Données d’œuvre invalides" }, 400);
+      }
+      if (!hasValidWorkStatuses(work, true)) {
+        return reply({
+          error: "Les statuts de lecture et de possession doivent être fournis comme booléens ou null",
+        }, 400);
       }
 
       const updates = cleanWork(work);

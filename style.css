@@ -161,6 +161,23 @@ main {
   accent-color: var(--accent);
 }
 
+.status-fields {
+  margin: 18px 0 0;
+  padding: 4px 14px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.status-fields legend {
+  padding: 0 6px;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.status-fields .check {
+  margin: 8px 0;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -331,6 +348,16 @@ main {
 .badge.owned {
   background: #e2eaf5;
   color: #365b87;
+}
+
+.badge.not-owned {
+  background: #f2e4e1;
+  color: var(--danger);
+}
+
+.badge.not-read {
+  background: #f7e8d5;
+  color: #985c18;
 }
 
 .book-actions {
