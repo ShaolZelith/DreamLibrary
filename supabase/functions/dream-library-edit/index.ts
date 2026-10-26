@@ -42,6 +42,25 @@ function hasValidWorkStatuses(
   );
 }
 
+async function optionalRows(
+  supabase: ReturnType<typeof createClient>,
+  table: string,
+  column: string,
+  values: string[],
+) {
+  if (!values.length) return { rows: [], error: null };
+
+  const { data, error } = await supabase.from(table).select("*").in(column, values);
+  if (
+    error &&
+    isRecord(error) &&
+    (error.code === "PGRST205" || error.code === "42703")
+  ) {
+    return { rows: [], error: null };
+  }
+  return { rows: data || [], error };
+}
+
 interface WorkAuthorInput {
   id?: string;
   name: string;
@@ -217,11 +236,249 @@ Deno.serve(async (req) => {
         authorsByWork.set(link.work_id, workAuthors);
       }
 
+      const { rows: workTagLinks, error: workTagError } = await optionalRows(
+        supabase,
+        "work_tags",
+        "work_id",
+        workIds,
+      );
+      if (workTagError) {
+        return replyDatabaseError(
+          "works_list",
+          "Impossible de charger les tags des œuvres",
+          workTagError,
+        );
+      }
+      const { rows: directTags, error: directTagsError } = await optionalRows(
+        supabase,
+        "tags",
+        "work_id",
+        workIds,
+      );
+      if (directTagsError) {
+        return replyDatabaseError(
+          "works_list",
+          "Impossible de charger les tags des œuvres",
+          directTagsError,
+        );
+      }
+      const tagIds = [...new Set(workTagLinks.flatMap((link) =>
+        typeof link.tag_id === "string" ? [link.tag_id] : []
+      ))];
+      const { rows: linkedTags, error: linkedTagsError } = await optionalRows(
+        supabase,
+        "tags",
+        "id",
+        tagIds,
+      );
+      if (linkedTagsError) {
+        return replyDatabaseError(
+          "works_list",
+          "Impossible de charger les tags des œuvres",
+          linkedTagsError,
+        );
+      }
+      const tagsByWork = new Map<string, Record<string, unknown>[]>();
+      for (const work of works) {
+        if (Array.isArray(work.tags)) {
+          tagsByWork.set(work.id, work.tags);
+        }
+      }
+      for (const link of workTagLinks) {
+        const tag = linkedTags.find((item) => item.id === link.tag_id) || link;
+        if (!tag) continue;
+        tagsByWork.set(link.work_id, [...(tagsByWork.get(link.work_id) || []), tag]);
+      }
+      for (const tag of directTags) {
+        if (typeof tag.work_id !== "string") continue;
+        tagsByWork.set(tag.work_id, [...(tagsByWork.get(tag.work_id) || []), tag]);
+      }
+
       return reply({
         works: works.map((work) => ({
           ...work,
           authors: authorsByWork.get(work.id) || [],
+          tags: tagsByWork.get(work.id) || [],
         })),
+      });
+    }
+
+    if (action === "works_detail") {
+      if (typeof id !== "string" || !isUuid(id)) {
+        return reply({ error: "Identifiant d’œuvre invalide" }, 400);
+      }
+
+      const { data: work, error: workError } = await supabase
+        .from("works").select("*").eq("id", id).maybeSingle();
+      if (workError) {
+        return replyDatabaseError("works_detail", "Impossible de charger l’œuvre", workError);
+      }
+      if (!work) return reply({ error: "Œuvre introuvable" }, 404);
+
+      const { data: authorLinks, error: authorLinksError } = await supabase
+        .from("work_authors")
+        .select("author_id, role, position")
+        .eq("work_id", id)
+        .order("position", { ascending: true });
+      if (authorLinksError) {
+        return replyDatabaseError(
+          "works_detail",
+          "Impossible de charger les auteurs de l’œuvre",
+          authorLinksError,
+        );
+      }
+
+      const authorIds = [...new Set(authorLinks.map((link) => link.author_id))];
+      const { data: authors, error: authorsError } = authorIds.length
+        ? await supabase.from("authors").select("id, name").in("id", authorIds)
+        : { data: [], error: null };
+      if (authorsError) {
+        return replyDatabaseError("works_detail", "Impossible de charger les auteurs", authorsError);
+      }
+      const authorsById = new Map(authors.map((author) => [author.id, author]));
+      const workAuthors = authorLinks.flatMap((link) => {
+        const author = authorsById.get(link.author_id);
+        return author
+          ? [{ id: author.id, name: author.name, role: link.role, position: link.position }]
+          : [];
+      });
+
+      const loadOptional = async (table: string, column: string, values: string[]) => {
+        const result = await optionalRows(supabase, table, column, values);
+        return result.error
+          ? { rows: [], response: replyDatabaseError(
+            "works_detail",
+            `Impossible de charger les informations associées (${table})`,
+            result.error,
+          ) }
+          : { rows: result.rows, response: null };
+      };
+      const uniqueIds = (rows: Record<string, unknown>[], field: string) =>
+        [...new Set(rows.flatMap((row) =>
+          typeof row[field] === "string" ? [row[field] as string] : []
+        ))];
+
+      const editionsResult = await loadOptional("editions", "work_id", [id]);
+      if (editionsResult.response) return editionsResult.response;
+      const editions = editionsResult.rows;
+      const editionIds = uniqueIds(editions, "id");
+
+      const copiesByWork = await loadOptional("copies", "work_id", [id]);
+      if (copiesByWork.response) return copiesByWork.response;
+      const copiesByEdition = await loadOptional("copies", "edition_id", editionIds);
+      if (copiesByEdition.response) return copiesByEdition.response;
+      const copies = [...new Map(
+        [...copiesByWork.rows, ...copiesByEdition.rows].map((copy) => [copy.id, copy]),
+      ).values()];
+
+      const workTagsResult = await loadOptional("work_tags", "work_id", [id]);
+      if (workTagsResult.response) return workTagsResult.response;
+      const directTagsResult = await loadOptional("tags", "work_id", [id]);
+      if (directTagsResult.response) return directTagsResult.response;
+      const tagIds = uniqueIds(workTagsResult.rows, "tag_id");
+      const linkedTagsResult = await loadOptional("tags", "id", tagIds);
+      if (linkedTagsResult.response) return linkedTagsResult.response;
+      const resolvedTagIds = new Set(linkedTagsResult.rows.map((tag) => tag.id));
+      const tags = [...new Map(
+        [
+          ...directTagsResult.rows,
+          ...linkedTagsResult.rows,
+          ...workTagsResult.rows.filter((link) => !resolvedTagIds.has(link.tag_id)),
+        ].map((tag, index) => [
+          tag.id || tag.tag_id || JSON.stringify(tag) || index,
+          tag,
+        ]),
+      ).values()];
+
+      const readingSessions = await loadOptional("reading_sessions", "work_id", [id]);
+      if (readingSessions.response) return readingSessions.response;
+      const readingNotes = await loadOptional("reading_notes", "work_id", [id]);
+      if (readingNotes.response) return readingNotes.response;
+      const notes = await loadOptional("notes", "work_id", [id]);
+      if (notes.response) return notes.response;
+      const citations = await loadOptional("citations", "work_id", [id]);
+      if (citations.response) return citations.response;
+      const passages = await loadOptional("important_passages", "work_id", [id]);
+      if (passages.response) return passages.response;
+
+      const relationByWork = await loadOptional("work_relations", "work_id", [id]);
+      if (relationByWork.response) return relationByWork.response;
+      const relationBySource = await loadOptional("work_relations", "source_work_id", [id]);
+      if (relationBySource.response) return relationBySource.response;
+      const relationByTarget = await loadOptional("work_relations", "target_work_id", [id]);
+      if (relationByTarget.response) return relationByTarget.response;
+      const relations = [...new Map(
+        [
+          ...relationByWork.rows,
+          ...relationBySource.rows,
+          ...relationByTarget.rows,
+        ].map((relation) => [
+          relation.id || JSON.stringify(relation),
+          relation,
+        ]),
+      ).values()];
+      const relatedWorkIds = [...new Set(relations.flatMap((relation) => [
+        relation.related_work_id,
+        relation.target_work_id,
+        relation.source_work_id,
+      ].filter((relatedId): relatedId is string =>
+        typeof relatedId === "string" && relatedId !== id
+      )))];
+      const { data: relatedWorks, error: relatedWorksError } = relatedWorkIds.length
+        ? await supabase.from("works").select("id, title").in("id", relatedWorkIds)
+        : { data: [], error: null };
+      if (relatedWorksError) {
+        return replyDatabaseError(
+          "works_detail",
+          "Impossible de charger les œuvres liées",
+          relatedWorksError,
+        );
+      }
+      const relatedTitles = new Map(relatedWorks.map((relatedWork) => [
+        relatedWork.id,
+        relatedWork.title,
+      ]));
+      const relationsWithTitles = relations.map((relation) => {
+        const relatedId = [
+          relation.related_work_id,
+          relation.target_work_id,
+          relation.source_work_id,
+        ].find((relatedId) =>
+          typeof relatedId === "string" && relatedId !== id
+        );
+        return {
+          ...relation,
+          related_work_title: typeof relatedId === "string"
+            ? relatedTitles.get(relatedId)
+            : undefined,
+        };
+      });
+
+      const locationIds = uniqueIds(copies, "location_id");
+      const locationsResult = await loadOptional("locations", "id", locationIds);
+      if (locationsResult.response) return locationsResult.response;
+      const locationsById = new Map(locationsResult.rows.map((location) => [
+        location.id,
+        location.name || location.label || location.location,
+      ]));
+      const copiesWithLocations = copies.map((copy) => ({
+        ...copy,
+        location_name: locationsById.get(copy.location_id),
+      }));
+
+      return reply({
+        work: { ...work, authors: workAuthors },
+        editions,
+        copies: copiesWithLocations,
+        tags,
+        reading_sessions: readingSessions.rows,
+        notes: [
+          ...readingNotes.rows,
+          ...notes.rows,
+          ...citations.rows,
+          ...passages.rows,
+        ],
+        relations: relationsWithTitles,
       });
     }
 
