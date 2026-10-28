@@ -376,12 +376,6 @@ main {
   padding: 8px 12px;
 }
 
-.sort-help {
-  margin: -14px 0 22px;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
 #statusMessage {
   color: var(--muted);
 }

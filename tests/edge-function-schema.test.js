@@ -414,6 +414,23 @@ test("work list loads existing publication years and latest personal ratings", (
   assert.match(frontend, /personal_rating: typeof work\.personal_rating === "number"/);
 });
 
+test("internal sort-selection explanations are not exposed in the public interface", () => {
+  for (const phrase of [
+    "Plusieurs auteurs",
+    "ordre enregistré",
+    "Plusieurs éditions",
+    "année la plus ancienne",
+    "Plusieurs notes",
+    "session notée la plus récemment créée",
+    "Plusieurs tags",
+    "premier nom alphabétique"
+  ]) {
+    assert.equal(html.includes(phrase), false, phrase);
+  }
+  assert.doesNotMatch(html, /sortHelp/);
+  assert.doesNotMatch(readFileSync(new URL("../style.css", import.meta.url), "utf8"), /\.sort-help/);
+});
+
 test("work sorting supports all criteria, missing values, and stable comparisons", () => {
   const sortWorks = runInNewContext(`${functionBlock("sortWorks")}; sortWorks`);
   const ids = (items, criterion) =>
