@@ -179,6 +179,17 @@ test("bidirectional relations persist, reload, and display without a duplicate r
     comment: ""
   }, 0);
   assert.match(selectedDirection, /value="both" selected>Dans les deux sens/);
+  assert.match(selectedDirection, /related-editor-item--rich-text-ending/);
+  const editionMarkup = markup("editions", { id: "edition-id" }, 0);
+  assert.doesNotMatch(editionMarkup, /related-editor-item--rich-text-ending/);
+  const richTextSpacingRule = stylesheet.match(
+    /\.related-editor-item--rich-text-ending\s*\{([^}]*)\}/,
+  )?.[1];
+  assert.match(richTextSpacingRule || "", /padding-bottom:\s*20px/);
+  const richTextDeleteSpacingRule = stylesheet.match(
+    /\.related-editor-item--rich-text-ending\s*>\s*\.delete-button\s*\{([^}]*)\}/,
+  )?.[1];
+  assert.match(richTextDeleteSpacingRule || "", /margin-top:\s*12px/);
 
   const reloadedEditor = runInNewContext(
     `${functionBlock("setRelatedEditorData")}; setRelatedEditorData(details); relatedEditor`,
@@ -345,12 +356,24 @@ test("rich text tools cover prose fields while structured fields stay simple", (
   );
   for (const command of [
     "bold", "italic", "underline", "strikeThrough",
-    "insertParagraph", "lineBreak", "insertUnorderedList",
+    "lineBreak", "insertUnorderedList",
     "insertOrderedList", "undo", "redo"
   ]) {
     assert.match(richMarkup, new RegExp(`data-rich-command="${command}"`));
   }
+  assert.doesNotMatch(richMarkup, /insertParagraph|Nouveau paragraphe|¶/);
   assert.match(richMarkup, /data-rich-editor data-related-field="review"/);
+  const toolbarRule = stylesheet.match(/\.rich-text-toolbar\s*\{([^}]*)\}/)?.[1];
+  assert.ok(toolbarRule, "rich text toolbar has a CSS rule");
+  assert.match(toolbarRule, /flex-wrap:\s*nowrap/);
+  assert.match(toolbarRule, /overflow:\s*hidden/);
+  assert.doesNotMatch(toolbarRule, /overflow-x:\s*auto/);
+  assert.match(toolbarRule, /max-width:\s*100%/);
+  const toolRule = stylesheet.match(/\.rich-text-tool\s*\{([^}]*)\}/)?.[1];
+  assert.ok(toolRule, "rich text tool buttons have a CSS rule");
+  assert.match(toolRule, /flex:\s*1 1 0/);
+  assert.match(toolRule, /min-width:\s*0/);
+  assert.match(toolRule, /min-height:\s*38px/);
 
   for (const simpleField of ["title", "authorName", "isbn", "publisher", "pages", "started_at"]) {
     assert.doesNotMatch(frontend, new RegExp(`richTextMarkup\\([^\\n]*"${simpleField}"`));

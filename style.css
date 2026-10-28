@@ -77,14 +77,19 @@ select:focus {
 
 .rich-text-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  flex-wrap: nowrap;
+  gap: 2px;
+  max-width: 100%;
+  overflow: hidden;
   margin: 0 0 6px;
+  padding-bottom: 4px;
 }
 
 .rich-text-tool {
-  min-width: 34px;
-  padding: 5px 8px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 38px;
+  padding: 5px 2px;
   border: 1px solid var(--border);
   background: #f5f1ec;
   color: var(--text);
@@ -773,6 +778,14 @@ main {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #faf8f5;
+}
+
+.related-editor-item--rich-text-ending {
+  padding-bottom: 20px;
+}
+
+.related-editor-item--rich-text-ending > .delete-button {
+  margin-top: 12px;
 }
 
 .related-editor-item legend {

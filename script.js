@@ -11,8 +11,7 @@ const RICH_TEXT_REMOVED_TAGS = new Set([
 ]);
 const RICH_TEXT_COMMANDS = new Set([
   "bold", "italic", "underline", "strikeThrough",
-  "insertUnorderedList", "insertOrderedList", "insertParagraph",
-  "lineBreak", "undo", "redo"
+  "insertUnorderedList", "insertOrderedList", "lineBreak", "undo", "redo"
 ]);
 const DETAIL_VALUE_LABELS = {
   status: {
@@ -128,7 +127,6 @@ function richTextMarkup(label, field, value, options = {}) {
     ["italic", "I", "Italique"],
     ["underline", "S", "Souligné"],
     ["strikeThrough", "B", "Barré"],
-    ["insertParagraph", "¶", "Nouveau paragraphe"],
     ["lineBreak", "↵", "Saut de ligne"],
     ["insertUnorderedList", "•", "Liste à puces"],
     ["insertOrderedList", "1.", "Liste numérotée"],
@@ -637,6 +635,7 @@ function editorField(label, field, value, type = "text", options = [], attribute
 function relatedItemMarkup(type, item, index) {
   let title = "";
   let fields = "";
+  let hasTrailingRichText = false;
   if (type === "editions") {
     title = `Édition ${index + 1}`;
     fields = `<div class="editor-field-grid">
@@ -669,6 +668,7 @@ function relatedItemMarkup(type, item, index) {
       ${editorField("Date d’acquisition", "acquired_at", item.acquired_at, "date")}
       ${richTextMarkup("Notes", "notes", item.notes)}
     </div>`;
+    hasTrailingRichText = true;
   } else if (type === "reading_sessions") {
     title = `Session de lecture ${index + 1}`;
     const copyOptions = relatedEditor.copies.map((copy, copyIndex) => ({
@@ -686,6 +686,7 @@ function relatedItemMarkup(type, item, index) {
       ${editorField("Note (0,5 à 5)", "rating", item.rating, "number", [], 'min="0.5" max="5" step="0.5"')}
       ${richTextMarkup("Critique", "review", item.review)}
     </div>`;
+    hasTrailingRichText = true;
   } else if (type === "notes") {
     title = `Note ${index + 1}`;
     const sessionOptions = relatedEditor.reading_sessions.map((session, sessionIndex) => ({
@@ -702,6 +703,7 @@ function relatedItemMarkup(type, item, index) {
       ${editorField("Chapitre", "chapter", item.chapter)}
       ${richTextMarkup("Contenu *", "content", item.content, { required: true })}
     </div>`;
+    hasTrailingRichText = true;
   } else {
     title = `Relation ${index + 1}`;
     const currentId = $("workId")?.value;
@@ -723,8 +725,10 @@ function relatedItemMarkup(type, item, index) {
       ], "required")}
       ${richTextMarkup("Commentaire", "comment", item.comment)}
     </div>`;
+    hasTrailingRichText = true;
   }
-  return `<fieldset class="related-editor-item" data-related-card="${type}" data-record-id="${escapeHTML(item.id)}">
+  const richTextClass = hasTrailingRichText ? " related-editor-item--rich-text-ending" : "";
+  return `<fieldset class="related-editor-item${richTextClass}" data-related-card="${type}" data-record-id="${escapeHTML(item.id)}">
     <legend>${title}</legend>${fields}
     <button type="button" class="delete-button" data-remove-related="${type}" data-record-id="${escapeHTML(item.id)}">Retirer</button>
   </fieldset>`;
