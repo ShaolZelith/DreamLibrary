@@ -61,6 +61,21 @@ function functionBlock(functionName) {
   assert.fail(`unterminated function ${functionName}`);
 }
 
+function edgeFunctionBlock(functionName) {
+  const start = edgeFunction.indexOf(`function ${functionName}(`);
+  assert.notEqual(start, -1, `missing Edge Function helper ${functionName}`);
+  const open = edgeFunction.indexOf("{", start);
+  let depth = 0;
+  for (let index = open; index < edgeFunction.length; index += 1) {
+    if (edgeFunction[index] === "{") depth += 1;
+    if (edgeFunction[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return edgeFunction.slice(start, index + 1);
+    }
+  }
+  assert.fail(`unterminated Edge Function helper ${functionName}`);
+}
+
 test("works_list reads confirmed work, author, and tag-link columns", () => {
   for (const column of ["is_read", "is_owned", "created_at"]) {
     assert.equal(hasColumn("works", column), true);
@@ -103,7 +118,7 @@ test("works_detail reads confirmed relations in both directions", () => {
   assert.match(detail, /\.eq\("source_work_id", id\)/);
   assert.match(detail, /\.eq\("target_work_id", id\)/);
   assert.match(detail, /relation\.source_work_id === id/);
-  assert.doesNotMatch(detail, /related_work_id|\.eq\("work_id", id\)[\s\S]{0,100}work_relations/);
+  assert.doesNotMatch(detail, /\.from\("work_relations"\)\.select\("related_work_id"\)/);
   assert.match(constraintsSnapshot, /CHECK \(source_work_id <> target_work_id\)/);
   assert.match(constraintsSnapshot, /UNIQUE \(source_work_id, target_work_id, relation_type\)/);
 });
@@ -205,6 +220,7 @@ test("every write action requires edit role", () => {
     "authors_resolve",
     "tags_create",
     "works_tags_set",
+    "works_related_set",
     "works_create",
     "works_update",
     "works_delete",
@@ -226,11 +242,98 @@ test("database schema errors are not converted to empty optional results", () =>
   assert.match(edgeFunction, /replyDatabaseError\("works_detail", "Impossible de charger les tags"/);
 });
 
-test("relations have no current write action to exercise", () => {
-  assert.doesNotMatch(edgeFunction, /action === "work_relations_(create|set|delete)"/);
+test("work editor exposes every persisted business field from the schema", () => {
+  const workFormFields = [
+    ["works", ["title", "summary", "cover_url", "original_language", "work_type", "is_priority", "is_read", "is_owned"]],
+    ["work_authors", ["role", "position"]],
+    ["editions", ["isbn", "publisher", "publication_year", "language", "format", "pages"]],
+    ["copies", ["ownership_status", "location_id", "condition", "acquired_at", "notes"]],
+    ["reading_sessions", ["copy_id", "started_at", "finished_at", "status", "rating", "review"]],
+    ["notes", ["reading_session_id", "note_type", "content", "page", "chapter"]],
+    ["work_relations", ["source_work_id", "target_work_id", "relation_type", "comment"]],
+  ];
+  for (const [table, columns] of workFormFields) {
+    for (const column of columns) {
+      assert.equal(hasColumn(table, column), true, `${table}.${column} exists in the schema`);
+      if (table === "works") {
+        const inputId = {
+          cover_url: "coverUrl",
+          original_language: "originalLanguage",
+          work_type: "workType",
+          is_priority: "isPriority",
+        }[column] || column;
+        assert.match(html, new RegExp(`id="${inputId}"`));
+      } else {
+        assert.ok(frontend.includes(column) || edgeFunction.includes(column), `${table}.${column} is handled by the editor`);
+      }
+    }
+  }
+  for (const technical of ["id", "created_at"]) {
+    assert.equal(hasColumn("works", technical), true);
+    assert.doesNotMatch(html, new RegExp(`id="${technical}"`));
+  }
+  assert.match(frontend, /summary: \$\("summary"\)\.value\.trim\(\) \|\| null/);
+  assert.match(frontend, /is_owned: selectedBoolean/);
+  assert.match(frontend, /is_read: selectedBoolean/);
 });
 
-test("author editor hides role fields and defaults created associations to author", () => {
+test("related form is prefilled from works_detail and persists on create and edit", () => {
+  assert.match(html, /id="editionsEditor"/);
+  assert.match(html, /id="copiesEditor"/);
+  assert.match(html, /id="readingSessionsEditor"/);
+  assert.match(html, /id="notesEditor"/);
+  assert.match(html, /id="relationsEditor"/);
+  assert.match(frontend, /fillForm\([\s\S]*?, details\)/);
+  assert.match(frontend, /setRelatedEditorData\(details \|\| \{ work \}\)/);
+  assert.match(frontend, /editRequest\(\s*"works_related_set"[\s\S]*?\{ related: relatedToSave \}/);
+  assert.match(actionBlock("works_related_set"), /parseRelatedInput\(body\.related, id\)/);
+  assert.match(actionBlock("works_related_set"), /return reply\(\{\s*saved: true/);
+  assert.match(frontend, /id \? "works_update" : "works_create"/);
+  assert.match(actionBlock("works_related_set"), /\.from\("editions"\)\.insert/);
+  assert.match(actionBlock("works_related_set"), /\.from\("editions"\)\.update/);
+  assert.match(actionBlock("works_related_set"), /\.from\("copies"\)\.insert/);
+  assert.match(actionBlock("works_related_set"), /\.from\("reading_sessions"\)\.insert/);
+  assert.match(actionBlock("works_related_set"), /\.from\("notes"\)\.insert/);
+  assert.match(actionBlock("works_related_set"), /\.from\("work_relations"\)\.insert/);
+});
+
+test("related writes validate enum, numeric, date, and foreign-key data", () => {
+  const parser = edgeFunctionBlock("parseRelatedInput");
+  assert.match(parser, /Number\.isInteger\(year\)/);
+  assert.match(parser, /Number\.isInteger\(pages\)/);
+  assert.match(parser, /reading_rating|rating \* 2 % 1/);
+  assert.match(edgeFunctionBlock("validDate"), /toISOString\(\)\.slice\(0, 10\)/);
+  assert.match(parser, /copies\.some\(\(copy\) => !editionIds\.has\(copy\.edition_id\)\)/);
+  assert.match(parser, /readingSessions\.some\(\(session\) => session\.copy_id && !copyIds\.has\(session\.copy_id\)\)/);
+  assert.match(parser, /notes\.some\(\(note\) => note\.reading_session_id && !sessionIds\.has\(note\.reading_session_id\)\)/);
+  assert.match(parser, /raw\.source_work_id !== workId && raw\.target_work_id !== workId/);
+  assert.match(actionBlock("works_related_set"), /locationRows\.length !== locationIds\.length/);
+  assert.match(actionBlock("works_related_set"), /relatedWorkRows\.length !== relatedWorkIds\.length/);
+  assert.match(parser, /!raw\.content\.trim\(\)/);
+});
+
+test("related records can be removed without deleting their parent entities", () => {
+  const setRelated = actionBlock("works_related_set");
+  assert.match(setRelated, /deleteOmitted\("notes"/);
+  assert.match(setRelated, /deleteOmitted\(\s*"reading_sessions"/);
+  assert.match(setRelated, /deleteOmitted\("copies"/);
+  assert.match(setRelated, /deleteOmitted\("work_relations"/);
+  assert.match(setRelated, /deleteOmitted\(\s*"editions"/);
+  assert.doesNotMatch(setRelated, /\.from\("authors"\)\s*\.delete/);
+  assert.doesNotMatch(setRelated, /\.from\("tags"\)\s*\.delete/);
+  assert.match(frontend, /Retirer cette édition supprimera aussi ses exemplaires/);
+});
+
+test("related-record writes and location reads require the appropriate access", () => {
+  assert.match(actionBlock("works_related_set"), /role !== "edit"/);
+  assert.match(actionBlock("locations_list"), /\.from\("locations"\)\s*\.select\("id, name, parent_id"\)/);
+  assert.match(frontend, /editRequest\("locations_list"\)/);
+  for (const action of ["works_related_set"]) {
+    assert.match(actionBlock(action), /role !== "edit"/, action);
+  }
+});
+
+test("author editor supports role and ordering while defaulting new links to author", () => {
   assert.match(html, /label for="authorName">Nom de l’auteur/);
   assert.match(html, /id="authorName" maxlength="300"/);
   assert.match(html, /id="addAuthor">Ajouter/);
@@ -240,6 +343,8 @@ test("author editor hides role fields and defaults created associations to autho
   assert.doesNotMatch(html, /authorSelect|addExistingAuthor|newAuthorName|addNewAuthor/);
   assert.doesNotMatch(frontend, /\$\("(?:authorSelect|newAuthorName)"\)/);
   assert.match(frontend, /role: "author"/);
+  assert.match(frontend, /data-author-role/);
+  assert.match(frontend, /data-move-author/);
   assert.match(frontend, /data-remove-author/);
 });
 

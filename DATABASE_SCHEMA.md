@@ -162,6 +162,14 @@ Les libellés ci-dessous décrivent leur usage apparent d’après les noms des 
 - `notes` rattache un contenu à une œuvre, et éventuellement à une session, avec type, page ou chapitre.
 - `work_authors` et `work_tags` sont des tables de liaison; `work_relations` représente un lien orienté entre deux œuvres.
 
+### Formulaire de création et de modification
+
+Le formulaire DreamLibrary permet de modifier les champs métier de `works`, les rôles et l’ordre des auteurs associés, ainsi que les associations de tags. Il inclut aussi l’ajout, la modification et le retrait des éditions, exemplaires, sessions de lecture, notes et relations décrits ci-dessus. Les clés étrangères vers un emplacement, un exemplaire, une session ou une autre œuvre sont choisies dans les enregistrements existants; les données maîtres des auteurs, tags et emplacements restent gérées séparément.
+
+Les identifiants et `created_at` sont techniques : ils ne sont pas éditables et les valeurs de création proviennent de la base. Les champs métier facultatifs sont enregistrés à `NULL` lorsqu’ils sont laissés vides. Le retrait d’une édition retire aussi ses exemplaires (avec confirmation dans l’interface); les sessions et notes associées sont conservées et leurs références facultatives sont effacées.
+
+Les modifications de l’œuvre, des auteurs, des tags et des entités liées sont enregistrées par plusieurs appels à l’Edge Function, pas par une transaction unique. En cas d’erreur intermédiaire, l’interface indique quelle partie a échoué et les données déjà enregistrées ne sont pas annulées automatiquement.
+
 ## Clés et contraintes confirmées
 
 Les définitions ci-dessous reprennent les résultats SQL. Toutes les contraintes listées sont retournées avec `is_validated = true`, `is_deferrable = false` et `initially_deferred = false` dans [schema_constraints.txt](./schema_constraints.txt).

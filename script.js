@@ -15,6 +15,14 @@ let activeAuthorSuggestionIndex = -1;
 let availableTags = [];
 let selectedTags = [];
 let tagsEdited = false;
+let availableLocations = [];
+let relatedEditor = {
+  editions: [],
+  copies: [],
+  reading_sessions: [],
+  notes: [],
+  relations: []
+};
 let accessPassword = "";
 let accessLevel = "";
 let modeSwitchTarget = "";
@@ -259,10 +267,20 @@ function renderSelectedAuthors() {
 
   container.innerHTML = selectedAuthors.map((author, index) => `
     <div class="selected-author">
-      <span>${escapeHTML(author.name)}${author.role !== "author"
-        ? ` (${escapeHTML(author.role)})`
-        : ""}</span>
+      <div>
+        <strong>${escapeHTML(author.name)}</strong>
+        <label>Rôle
+          <input type="text" maxlength="80" data-author-role="${index}"
+            value="${escapeHTML(author.role || "author")}">
+        </label>
+      </div>
+      <div class="author-order-actions">
+        <button type="button" class="secondary-button" data-move-author="${index}" data-direction="-1"
+          aria-label="Monter l’auteur" ${index === 0 ? "disabled" : ""}>↑</button>
+        <button type="button" class="secondary-button" data-move-author="${index}" data-direction="1"
+          aria-label="Descendre l’auteur" ${index === selectedAuthors.length - 1 ? "disabled" : ""}>↓</button>
       <button type="button" data-remove-author="${index}">Retirer</button>
+      </div>
     </div>
   `).join("");
 
@@ -273,6 +291,25 @@ function renderSelectedAuthors() {
       selectedAuthors = selectedAuthors.map((author, index) => ({
         ...author,
         position: index + 1
+      }));
+      renderSelectedAuthors();
+    });
+  });
+  container.querySelectorAll("[data-author-role]").forEach((input) => {
+    input.addEventListener("input", () => {
+      selectedAuthors[Number(input.dataset.authorRole)].role = input.value.trim() || "author";
+    });
+  });
+  container.querySelectorAll("[data-move-author]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.moveAuthor);
+      const nextIndex = index + Number(button.dataset.direction);
+      if (nextIndex < 0 || nextIndex >= selectedAuthors.length) return;
+      [selectedAuthors[index], selectedAuthors[nextIndex]] =
+        [selectedAuthors[nextIndex], selectedAuthors[index]];
+      selectedAuthors = selectedAuthors.map((author, authorIndex) => ({
+        ...author,
+        position: authorIndex + 1
       }));
       renderSelectedAuthors();
     });
@@ -387,6 +424,246 @@ function renderTagOptions() {
       tag.id,
     ));
   });
+}
+
+function newRelatedRecord(type) {
+  const id = crypto.randomUUID();
+  if (type === "editions") {
+    return {
+      id, isbn: "", publisher: "", publication_year: null, language: "",
+      format: "", pages: null
+    };
+  }
+  if (type === "copies") {
+    return {
+      id, edition_id: "", ownership_status: "owned", location_id: "",
+      condition: "", acquired_at: "", notes: ""
+    };
+  }
+  if (type === "reading_sessions") {
+    return {
+      id, copy_id: "", started_at: "", finished_at: "", status: "planned",
+      rating: null, review: ""
+    };
+  }
+  if (type === "notes") {
+    return {
+      id, reading_session_id: "", note_type: "reflection", content: "",
+      page: "", chapter: ""
+    };
+  }
+  return {
+    id, related_work_id: "", direction: "outgoing",
+    relation_type: "same_subject", comment: ""
+  };
+}
+
+function optionMarkup(options, selected, emptyLabel = "Aucun") {
+  return `<option value="">${escapeHTML(emptyLabel)}</option>${options.map((option) => `
+    <option value="${escapeHTML(option.value)}" ${option.value === selected ? "selected" : ""}>
+      ${escapeHTML(option.label)}
+    </option>
+  `).join("")}`;
+}
+
+function editorField(label, field, value, type = "text", options = [], attributes = "") {
+  const content = type === "select"
+    ? `<select data-related-field="${field}" ${attributes}>${optionMarkup(options, value)}</select>`
+    : type === "textarea"
+    ? `<textarea data-related-field="${field}" ${attributes}>${escapeHTML(value || "")}</textarea>`
+    : `<input type="${type}" data-related-field="${field}" value="${escapeHTML(value ?? "")}" ${attributes}>`;
+  return `<label>${escapeHTML(label)}${content}</label>`;
+}
+
+function relatedItemMarkup(type, item, index) {
+  let title = "";
+  let fields = "";
+  if (type === "editions") {
+    title = `Édition ${index + 1}`;
+    fields = `<div class="editor-field-grid">
+      ${editorField("ISBN", "isbn", item.isbn)}
+      ${editorField("Éditeur", "publisher", item.publisher)}
+      ${editorField("Année de publication", "publication_year", item.publication_year, "number", [], 'min="1" max="9999" step="1"')}
+      ${editorField("Langue", "language", item.language)}
+      ${editorField("Format", "format", item.format)}
+      ${editorField("Nombre de pages", "pages", item.pages, "number", [], 'min="1" step="1"')}
+    </div>`;
+  } else if (type === "copies") {
+    title = `Exemplaire ${index + 1}`;
+    const editionOptions = relatedEditor.editions.map((edition, editionIndex) => ({
+      value: edition.id,
+      label: edition.isbn || edition.publisher || `Édition ${editionIndex + 1}`
+    }));
+    const locationOptions = availableLocations.map((location) => ({
+      value: location.id,
+      label: location.name
+    }));
+    fields = `<div class="editor-field-grid">
+      ${editorField("Édition *", "edition_id", item.edition_id, "select", editionOptions, "required")}
+      ${editorField("Possession *", "ownership_status", item.ownership_status, "select", [
+        { value: "owned", label: "Possédé" }, { value: "borrowed", label: "Emprunté" },
+        { value: "loaned", label: "Prêté" }, { value: "wanted", label: "Souhaité" },
+        { value: "digital", label: "Numérique" }
+      ], "required")}
+      ${editorField("Emplacement", "location_id", item.location_id, "select", locationOptions)}
+      ${editorField("État", "condition", item.condition)}
+      ${editorField("Date d’acquisition", "acquired_at", item.acquired_at, "date")}
+      ${editorField("Notes", "notes", item.notes, "textarea")}
+    </div>`;
+  } else if (type === "reading_sessions") {
+    title = `Session de lecture ${index + 1}`;
+    const copyOptions = relatedEditor.copies.map((copy, copyIndex) => ({
+      value: copy.id,
+      label: `Exemplaire ${copyIndex + 1}`
+    }));
+    fields = `<div class="editor-field-grid">
+      ${editorField("Exemplaire", "copy_id", item.copy_id, "select", copyOptions)}
+      ${editorField("Statut *", "status", item.status, "select", [
+        { value: "planned", label: "Prévue" }, { value: "in_progress", label: "En cours" },
+        { value: "completed", label: "Terminée" }, { value: "abandoned", label: "Abandonnée" }
+      ], "required")}
+      ${editorField("Date de début", "started_at", item.started_at, "date")}
+      ${editorField("Date de fin", "finished_at", item.finished_at, "date")}
+      ${editorField("Note (0,5 à 5)", "rating", item.rating, "number", [], 'min="0.5" max="5" step="0.5"')}
+      ${editorField("Critique", "review", item.review, "textarea")}
+    </div>`;
+  } else if (type === "notes") {
+    title = `Note ${index + 1}`;
+    const sessionOptions = relatedEditor.reading_sessions.map((session, sessionIndex) => ({
+      value: session.id,
+      label: `Session ${sessionIndex + 1}${session.started_at ? ` (${session.started_at})` : ""}`
+    }));
+    fields = `<div class="editor-field-grid">
+      ${editorField("Session de lecture", "reading_session_id", item.reading_session_id, "select", sessionOptions)}
+      ${editorField("Type *", "note_type", item.note_type, "select", [
+        { value: "quote", label: "Citation" }, { value: "reflection", label: "Réflexion" },
+        { value: "summary", label: "Résumé" }, { value: "highlight", label: "Passage important" }
+      ], "required")}
+      ${editorField("Page", "page", item.page)}
+      ${editorField("Chapitre", "chapter", item.chapter)}
+      ${editorField("Contenu *", "content", item.content, "textarea", [], "required")}
+    </div>`;
+  } else {
+    title = `Relation ${index + 1}`;
+    const currentId = $("workId")?.value;
+    const workOptions = works.filter((work) => work.id !== currentId).map((work) => ({
+      value: work.id,
+      label: work.title
+    }));
+    fields = `<div class="editor-field-grid">
+      ${editorField("Œuvre liée *", "related_work_id", item.related_work_id, "select", workOptions, "required")}
+      ${editorField("Direction *", "direction", item.direction, "select", [
+        { value: "outgoing", label: "Cette œuvre est la source" },
+        { value: "incoming", label: "Cette œuvre est la cible" }
+      ], "required")}
+      ${editorField("Type *", "relation_type", item.relation_type, "select", [
+        { value: "same_subject", label: "Même sujet" }, { value: "complements", label: "Complète" },
+        { value: "contradicts", label: "Contredit" }, { value: "criticizes", label: "Critique" },
+        { value: "alternative_view", label: "Point de vue alternatif" }
+      ], "required")}
+      ${editorField("Commentaire", "comment", item.comment, "textarea")}
+    </div>`;
+  }
+  return `<fieldset class="related-editor-item" data-related-card="${type}" data-record-id="${escapeHTML(item.id)}">
+    <legend>${title}</legend>${fields}
+    <button type="button" class="delete-button" data-remove-related="${type}" data-record-id="${escapeHTML(item.id)}">Retirer</button>
+  </fieldset>`;
+}
+
+function readRelatedEditorFromDom() {
+  const result = {};
+  for (const type of Object.keys(relatedEditor)) {
+    result[type] = [...document.querySelectorAll(`[data-related-card="${type}"]`)].map((card) => {
+      const item = { id: card.dataset.recordId };
+      card.querySelectorAll("[data-related-field]").forEach((input) => {
+        const field = input.dataset.relatedField;
+        if (input.type === "number") item[field] = input.value === "" ? null : Number(input.value);
+        else item[field] = input.value.trim() || null;
+      });
+      return item;
+    });
+  }
+  return result;
+}
+
+function relatedValuesMatch(details, expected) {
+  const fields = {
+    editions: ["isbn", "publisher", "publication_year", "language", "format", "pages"],
+    copies: ["edition_id", "ownership_status", "location_id", "condition", "acquired_at", "notes"],
+    reading_sessions: ["copy_id", "started_at", "finished_at", "status", "rating", "review"],
+    notes: ["reading_session_id", "note_type", "content", "page", "chapter"],
+    relations: ["source_work_id", "target_work_id", "relation_type", "comment"]
+  };
+  return Object.entries(fields).every(([collection, properties]) => {
+    const actualRecords = details[collection];
+    const expectedRecords = expected[collection];
+    if (!Array.isArray(actualRecords) || actualRecords.length !== expectedRecords.length) {
+      return false;
+    }
+    const actualById = new Map(actualRecords.map((record) => [record.id, record]));
+    return expectedRecords.every((expectedRecord) => {
+      const actual = actualById.get(expectedRecord.id);
+      return actual && properties.every((property) =>
+        (actual[property] ?? null) === (expectedRecord[property] ?? null)
+      );
+    });
+  });
+}
+
+function renderRelatedEditors() {
+  const containers = {
+    editions: "editionsEditor",
+    copies: "copiesEditor",
+    reading_sessions: "readingSessionsEditor",
+    notes: "notesEditor",
+    relations: "relationsEditor"
+  };
+  for (const [type, containerId] of Object.entries(containers)) {
+    const container = $(containerId);
+    if (container) {
+      container.innerHTML = relatedEditor[type]
+        .map((item, index) => relatedItemMarkup(type, item, index))
+        .join("");
+    }
+  }
+}
+
+function setRelatedEditorData(details = {}) {
+  relatedEditor = {
+    editions: (details.editions || []).map((edition) => ({ ...edition })),
+    copies: (details.copies || []).map((copy) => ({ ...copy })),
+    reading_sessions: (details.reading_sessions || []).map((session) => ({ ...session })),
+    notes: (details.notes || []).map((note) => ({ ...note })),
+    relations: (details.relations || []).map((relation) => ({
+      ...relation,
+      related_work_id: relation.related_work_id ||
+        (relation.source_work_id === details.work?.id
+          ? relation.target_work_id
+          : relation.source_work_id),
+      direction: relation.direction ||
+        (relation.source_work_id === details.work?.id ? "outgoing" : "incoming")
+    }))
+  };
+  for (const copy of relatedEditor.copies) {
+    if (
+      copy.location_id &&
+      !availableLocations.some((location) => location.id === copy.location_id)
+    ) {
+      availableLocations.push({
+        id: copy.location_id,
+        name: copy.location_name || "Emplacement existant"
+      });
+    }
+  }
+  renderRelatedEditors();
+}
+
+async function loadLocations() {
+  const result = await editRequest("locations_list");
+  if (!Array.isArray(result.locations)) {
+    throw new Error("Réponse invalide : la liste des emplacements est absente.");
+  }
+  availableLocations = result.locations;
 }
 
 function addSelectedAuthor(author) {
@@ -604,7 +881,7 @@ function renderWorkDetails(details) {
   panel.querySelector("[data-close-details]").addEventListener("click", closeWorkDetails);
   panel.querySelector("[data-detail-edit]")?.addEventListener("click", () => {
     if (accessLevel !== "edit") return;
-    fillForm(works.find((item) => item.id === work.id) || normalizeWork(work));
+    fillForm(works.find((item) => item.id === work.id) || normalizeWork(work), details);
   });
   panel.querySelector("[data-detail-delete]")?.addEventListener("click", () => {
     if (accessLevel === "edit") deleteWork(work.id);
@@ -630,7 +907,7 @@ async function openWorkDetails(id) {
       throw new Error("Réponse invalide : les détails de l’œuvre sont absents.");
     }
     renderWorkDetails(result);
-    return true;
+    return result;
   } catch (error) {
     if (selectedWorkId !== id) return;
     panel.innerHTML = `
@@ -732,7 +1009,7 @@ function renderWorks() {
   });
 }
 
-function renderWorkEditor(mode, work = null) {
+function renderWorkEditor(mode, work = null, details = null) {
   if (accessLevel !== "edit") return;
   selectedAuthorSuggestion = null;
   closeAuthorSuggestions();
@@ -765,6 +1042,7 @@ function renderWorkEditor(mode, work = null) {
   $("is_not_owned").checked = work?.is_owned === false;
   $("is_read").checked = work?.is_read === true;
   $("is_not_read").checked = work?.is_read === false;
+  setRelatedEditorData(details || { work });
   selectedAuthors = (work?.authors || []).map((author, index) => ({
     id: author.id,
     name: author.name,
@@ -792,15 +1070,35 @@ function beginCreateWork() {
   loadTags().then(renderTagOptions).catch((error) => {
     showTagStatus(`Impossible de charger les tags : ${error.message}`, true);
   });
+  loadLocations().then(() => {
+    if ($("workForm")) relatedEditor = readRelatedEditorFromDom();
+    renderRelatedEditors();
+  }).catch((error) => {
+    const message = $("editorMessage");
+    if (message) {
+      message.textContent = `Impossible de charger les emplacements : ${error.message}`;
+      message.classList.add("is-error");
+    }
+  });
 }
 
-function fillForm(work) {
+function fillForm(work, details = { work }) {
   if (accessLevel !== "edit") return;
   selectedWorkId = work.id;
   renderWorks();
-  renderWorkEditor("edit", work);
+  renderWorkEditor("edit", work, details);
   loadTags().then(renderTagOptions).catch((error) => {
     showTagStatus(`Impossible de charger les tags : ${error.message}`, true);
+  });
+  loadLocations().then(() => {
+    if ($("workForm")) relatedEditor = readRelatedEditorFromDom();
+    renderRelatedEditors();
+  }).catch((error) => {
+    const message = $("editorMessage");
+    if (message) {
+      message.textContent = `Impossible de charger les emplacements : ${error.message}`;
+      message.classList.add("is-error");
+    }
   });
 }
 
@@ -993,6 +1291,7 @@ document.addEventListener("submit", async (event) => {
     is_owned: selectedBoolean("is_owned", "is_not_owned"),
     is_read: selectedBoolean("is_read", "is_not_read")
   };
+  const relatedToSave = readRelatedEditorFromDom();
   const id = $("workId").value;
   const submitButton = $("saveWorkButton");
   const formMode = $("workForm").dataset.mode;
@@ -1012,6 +1311,17 @@ document.addEventListener("submit", async (event) => {
       $("workForm").dataset.mode = "edit";
       selectedWorkId = savedId;
     }
+    relatedToSave.relations = relatedToSave.relations.map((relation) => ({
+      id: relation.id,
+      source_work_id: relation.direction === "incoming"
+        ? relation.related_work_id
+        : savedId,
+      target_work_id: relation.direction === "incoming"
+        ? savedId
+        : relation.related_work_id,
+      relation_type: relation.relation_type,
+      comment: relation.comment
+    }));
 
     try {
       const authorResult = await editRequest(
@@ -1073,6 +1383,25 @@ document.addEventListener("submit", async (event) => {
       }
     }
 
+    try {
+      const relatedResult = await editRequest(
+        "works_related_set",
+        accessPassword,
+        null,
+        savedId,
+        { related: relatedToSave }
+      );
+      if (relatedResult.saved !== true) {
+        throw new Error("La fonction n’a pas confirmé les données associées.");
+      }
+    } catch (error) {
+      $("editorMessage").textContent =
+        `Le livre, ses auteurs et ses tags sont enregistrés, mais les informations associées ne l’ont pas été : ${error.message}`;
+      $("editorMessage").classList.add("is-error");
+      console.error("works_related_set failed", error);
+      return;
+    }
+
     const worksLoaded = await loadWorks();
     if (!worksLoaded) {
       $("editorMessage").textContent =
@@ -1119,9 +1448,17 @@ document.addEventListener("submit", async (event) => {
     }
 
     selectedWorkId = savedId;
-    if (!await openWorkDetails(savedId)) {
+    const reloadedDetails = await openWorkDetails(savedId);
+    if (!reloadedDetails) {
       showStatus(
         "Enregistrement confirmé, mais les détails ne peuvent pas être rechargés.",
+        true
+      );
+      return;
+    }
+    if (!relatedValuesMatch(reloadedDetails, relatedToSave)) {
+      showStatus(
+        "Le livre est enregistré, mais les informations des éditions, exemplaires, lectures, notes ou relations relues ne correspondent pas aux valeurs envoyées.",
         true
       );
       return;
@@ -1187,6 +1524,55 @@ document.addEventListener("click", async (event) => {
       item.id === authorSuggestion.dataset.authorSuggestion
     );
     if (author) selectAuthorSuggestion(author);
+    return;
+  }
+
+  const addRelatedButton = target.closest("[data-add-related]");
+  if (addRelatedButton && accessLevel === "edit") {
+    const type = addRelatedButton.dataset.addRelated;
+    if (!Object.prototype.hasOwnProperty.call(relatedEditor, type)) return;
+    relatedEditor = readRelatedEditorFromDom();
+    relatedEditor[type].push(newRelatedRecord(type));
+    renderRelatedEditors();
+    return;
+  }
+
+  const removeRelatedButton = target.closest("[data-remove-related]");
+  if (removeRelatedButton && accessLevel === "edit") {
+    const type = removeRelatedButton.dataset.removeRelated;
+    const recordId = removeRelatedButton.dataset.recordId;
+    if (!Object.prototype.hasOwnProperty.call(relatedEditor, type)) return;
+    relatedEditor = readRelatedEditorFromDom();
+    if (
+      type === "editions" &&
+      relatedEditor.copies.some((copy) => copy.edition_id === recordId) &&
+      !confirm("Retirer cette édition supprimera aussi ses exemplaires. Continuer ?")
+    ) {
+      renderRelatedEditors();
+      return;
+    }
+    relatedEditor[type] = relatedEditor[type].filter((item) => item.id !== recordId);
+    if (type === "editions") {
+      const removedCopyIds = relatedEditor.copies
+        .filter((copy) => copy.edition_id === recordId)
+        .map((copy) => copy.id);
+      relatedEditor.copies = relatedEditor.copies
+        .filter((copy) => copy.edition_id !== recordId);
+      relatedEditor.reading_sessions = relatedEditor.reading_sessions.map((session) =>
+        removedCopyIds.includes(session.copy_id) ? { ...session, copy_id: null } : session
+      );
+    } else if (type === "copies") {
+      relatedEditor.reading_sessions = relatedEditor.reading_sessions.map((session) =>
+        session.copy_id === recordId ? { ...session, copy_id: null } : session
+      );
+    } else if (type === "reading_sessions") {
+      relatedEditor.notes = relatedEditor.notes.map((note) =>
+        note.reading_session_id === recordId
+          ? { ...note, reading_session_id: null }
+          : note
+      );
+    }
+    renderRelatedEditors();
     return;
   }
 
