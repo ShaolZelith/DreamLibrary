@@ -1,6 +1,18 @@
 const SUPABASE_URL = "https://itbmwxnqeajiequjdezh.supabase.co";
 const SUPABASE_KEY = "sb_publishable_wyI9gQlY6JxcZ6EskKxCCQ_Of9BZBZF";
 const EDIT_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/dream-library-edit`;
+const RICH_TEXT_PREFIX = "dream-library-rich-text:v1\n";
+const RICH_TEXT_TAGS = new Set([
+  "b", "strong", "i", "em", "u", "s", "strike", "br", "p", "ul", "ol", "li"
+]);
+const RICH_TEXT_REMOVED_TAGS = new Set([
+  "script", "style", "iframe", "object", "embed", "svg", "math", "template"
+]);
+const RICH_TEXT_COMMANDS = new Set([
+  "bold", "italic", "underline", "strikeThrough",
+  "insertUnorderedList", "insertOrderedList", "insertParagraph",
+  "lineBreak", "undo", "redo"
+]);
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,6 +48,81 @@ const escapeHTML = (value = "") =>
     "'": "&#39;"
   })[char]);
 
+function sanitizeRichText(value) {
+  const parsed = new DOMParser().parseFromString(String(value ?? ""), "text/html");
+  const sanitizeNode = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHTML(node.nodeValue || "").replace(/\r\n?|\n/g, "<br>");
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+    const tag = node.tagName.toLowerCase();
+    if (RICH_TEXT_REMOVED_TAGS.has(tag)) return "";
+    const children = [...node.childNodes].map(sanitizeNode).join("");
+    if (tag === "div") return `<p>${children}</p>`;
+    if (tag === "br") return "<br>";
+    return RICH_TEXT_TAGS.has(tag) ? `<${tag}>${children}</${tag}>` : children;
+  };
+  return [...parsed.body.childNodes].map(sanitizeNode).join("");
+}
+
+function storedRichTextHTML(value) {
+  if (typeof value !== "string") return "";
+  if (!value.startsWith(RICH_TEXT_PREFIX)) {
+    return escapeHTML(value).replace(/\r\n?|\n/g, "<br>");
+  }
+  return sanitizeRichText(value.slice(RICH_TEXT_PREFIX.length));
+}
+
+function serializeRichText(value) {
+  const html = sanitizeRichText(value);
+  const text = new DOMParser().parseFromString(html, "text/html").body.textContent || "";
+  return text.trim() ? `${RICH_TEXT_PREFIX}${html}` : null;
+}
+
+function richTextMarkup(label, field, value, options = {}) {
+  const id = options.id ? ` id="${escapeHTML(options.id)}"` : "";
+  const required = options.required ? " data-required-rich-text=\"true\"" : "";
+  const buttons = [
+    ["bold", "G", "Gras"],
+    ["italic", "I", "Italique"],
+    ["underline", "S", "Souligné"],
+    ["strikeThrough", "B", "Barré"],
+    ["insertParagraph", "¶", "Nouveau paragraphe"],
+    ["lineBreak", "↵", "Saut de ligne"],
+    ["insertUnorderedList", "•", "Liste à puces"],
+    ["insertOrderedList", "1.", "Liste numérotée"],
+    ["undo", "↶", "Annuler"],
+    ["redo", "↷", "Rétablir"]
+  ].map(([command, text, title]) =>
+    `<button type="button" class="rich-text-tool" data-rich-command="${command}" title="${title}" aria-label="${title}">${text}</button>`
+  ).join("");
+
+  return `<div class="rich-text-field">
+    <label${id ? ` for="${options.id}"` : ""}>${escapeHTML(label)}</label>
+    <div class="rich-text-toolbar" role="toolbar" aria-label="Mise en forme : ${escapeHTML(label)}">${buttons}</div>
+    <div${id} class="rich-text-input" data-rich-editor data-related-field="${escapeHTML(field)}"
+      contenteditable="true" role="textbox" aria-multiline="true"
+      aria-label="${escapeHTML(label)}" spellcheck="true"${options.required ? " aria-required=\"true\"" : ""}${required}>${storedRichTextHTML(value)}</div>
+  </div>`;
+}
+
+function executeRichTextCommand(editor, command) {
+  if (!editor || !RICH_TEXT_COMMANDS.has(command)) return;
+  editor.focus();
+  const selection = window.getSelection();
+  if (
+    savedRichTextRange &&
+    editor.contains(savedRichTextRange.commonAncestorContainer) &&
+    selection
+  ) {
+    selection.removeAllRanges();
+    selection.addRange(savedRichTextRange);
+  }
+  if (command === "lineBreak") document.execCommand("insertHTML", false, "<br>");
+  else document.execCommand(command, false);
+}
+
 function showStatus(message, isError = false) {
   $("statusMessage").textContent = message;
   $("statusMessage").style.color = isError ? "#a34848" : "";
@@ -54,6 +141,18 @@ function showTagStatus(message, isError = false) {
   status.textContent = message;
   status.style.color = isError ? "#a34848" : "";
 }
+
+let savedRichTextRange = null;
+document.addEventListener("selectionchange", () => {
+  const selection = window.getSelection();
+  const editor = document.activeElement?.closest?.("[data-rich-editor]");
+  if (editor && selection?.rangeCount) {
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      savedRichTextRange = range.cloneRange();
+    }
+  }
+});
 
 function normalizeWork(work) {
   return {
@@ -88,6 +187,15 @@ function displayName(item) {
   if (typeof item === "string") return item;
   if (!item || typeof item !== "object") return "";
   return item.name || item.label || item.title || item.tag || "";
+}
+
+function isRichTextField(field) {
+  return ["summary", "review", "content", "comment", "notes"].includes(field);
+}
+
+function renderRichText(value) {
+  const html = storedRichTextHTML(value);
+  return html ? `<div class="rich-text-content">${html}</div>` : "";
 }
 
 function detailFields(record, excluded = []) {
@@ -154,12 +262,12 @@ function detailFields(record, excluded = []) {
     const label = labels[key] || key
       .replace(/_/g, " ")
       .replace(/\b\w/g, (character) => character.toLocaleUpperCase("fr"));
-    return [[label, formattedValue]];
+    return [[label, formattedValue, isRichTextField(key) ? value : null]];
   });
 
   if (!rows.length) return "";
-  return `<dl class="detail-fields">${rows.map(([label, value]) => `
-    <div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>
+  return `<dl class="detail-fields">${rows.map(([label, value, richValue]) => `
+    <div><dt>${escapeHTML(label)}</dt><dd>${richValue === null ? escapeHTML(value) : renderRichText(richValue)}</dd></div>
   `).join("")}</dl>`;
 }
 
@@ -483,8 +591,6 @@ function optionMarkup(options, selected, emptyLabel = "Aucun") {
 function editorField(label, field, value, type = "text", options = [], attributes = "") {
   const content = type === "select"
     ? `<select data-related-field="${field}" ${attributes}>${optionMarkup(options, value)}</select>`
-    : type === "textarea"
-    ? `<textarea data-related-field="${field}" ${attributes}>${escapeHTML(value || "")}</textarea>`
     : `<input type="${type}" data-related-field="${field}" value="${escapeHTML(value ?? "")}" ${attributes}>`;
   return `<label>${escapeHTML(label)}${content}</label>`;
 }
@@ -522,7 +628,7 @@ function relatedItemMarkup(type, item, index) {
       ${editorField("Emplacement", "location_id", item.location_id, "select", locationOptions)}
       ${editorField("État", "condition", item.condition)}
       ${editorField("Date d’acquisition", "acquired_at", item.acquired_at, "date")}
-      ${editorField("Notes", "notes", item.notes, "textarea")}
+      ${richTextMarkup("Notes", "notes", item.notes)}
     </div>`;
   } else if (type === "reading_sessions") {
     title = `Session de lecture ${index + 1}`;
@@ -539,7 +645,7 @@ function relatedItemMarkup(type, item, index) {
       ${editorField("Date de début", "started_at", item.started_at, "date")}
       ${editorField("Date de fin", "finished_at", item.finished_at, "date")}
       ${editorField("Note (0,5 à 5)", "rating", item.rating, "number", [], 'min="0.5" max="5" step="0.5"')}
-      ${editorField("Critique", "review", item.review, "textarea")}
+      ${richTextMarkup("Critique", "review", item.review)}
     </div>`;
   } else if (type === "notes") {
     title = `Note ${index + 1}`;
@@ -555,7 +661,7 @@ function relatedItemMarkup(type, item, index) {
       ], "required")}
       ${editorField("Page", "page", item.page)}
       ${editorField("Chapitre", "chapter", item.chapter)}
-      ${editorField("Contenu *", "content", item.content, "textarea", [], "required")}
+      ${richTextMarkup("Contenu *", "content", item.content, { required: true })}
     </div>`;
   } else {
     title = `Relation ${index + 1}`;
@@ -576,7 +682,7 @@ function relatedItemMarkup(type, item, index) {
         { value: "contradicts", label: "Contredit" }, { value: "criticizes", label: "Critique" },
         { value: "alternative_view", label: "Point de vue alternatif" }
       ], "required")}
-      ${editorField("Commentaire", "comment", item.comment, "textarea")}
+      ${richTextMarkup("Commentaire", "comment", item.comment)}
     </div>`;
   }
   return `<fieldset class="related-editor-item" data-related-card="${type}" data-record-id="${escapeHTML(item.id)}">
@@ -592,7 +698,9 @@ function readRelatedEditorFromDom() {
       const item = { id: card.dataset.recordId };
       card.querySelectorAll("[data-related-field]").forEach((input) => {
         const field = input.dataset.relatedField;
-        if (input.type === "number") item[field] = input.value === "" ? null : Number(input.value);
+        if (input.hasAttribute("data-rich-editor")) {
+          item[field] = serializeRichText(input.innerHTML);
+        } else if (input.type === "number") item[field] = input.value === "" ? null : Number(input.value);
         else item[field] = input.value.trim() || null;
       });
       return item;
@@ -854,7 +962,7 @@ function renderWorkDetails(details) {
     ? `<div class="badges">${tags.map((tag) => `<span class="badge">${escapeHTML(tag)}</span>`).join("")}</div>`
     : "";
   const summary = work.summary
-    ? `<p class="detail-summary">${escapeHTML(work.summary)}</p>`
+    ? `<div class="detail-summary">${renderRichText(work.summary)}</div>`
     : "";
   const authorsSection = authors.length
     ? detailSection("Auteurs", `<p>${authors.map(escapeHTML).join(", ")}</p>`)
@@ -1210,6 +1318,12 @@ function renderWorkEditor(mode, work = null, details = null) {
     $("workEditorTemplate").content.cloneNode(true)
   );
 
+  $("summaryEditorMount").outerHTML = richTextMarkup(
+    "Résumé",
+    "summary",
+    work?.summary,
+    { id: "summary" },
+  );
   const form = $("workForm");
   $("saveWorkButton").textContent = mode === "create"
     ? "Enregistrer le livre"
@@ -1217,7 +1331,7 @@ function renderWorkEditor(mode, work = null, details = null) {
   $("workId").value = work?.id || "";
   $("title").value = work?.title === "Sans titre" ? "" : work?.title || "";
   $("coverUrl").value = work?.cover_url || "";
-  $("summary").value = work?.summary || "";
+  $("summary").innerHTML = storedRichTextHTML(work?.summary || "");
   $("originalLanguage").value = work?.original_language || "";
   $("workType").value = work?.work_type || "";
   $("isPriority").checked = work?.is_priority === true;
@@ -1450,6 +1564,16 @@ document.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (accessLevel !== "edit" || !accessPassword) return;
 
+  const missingRichText = event.target.querySelector("[data-required-rich-text]");
+  if (missingRichText && !missingRichText.textContent.trim()) {
+    missingRichText.setAttribute("aria-invalid", "true");
+    missingRichText.focus();
+    $("editorMessage").textContent = "Le contenu de la note est obligatoire.";
+    $("editorMessage").classList.add("is-error");
+    return;
+  }
+  missingRichText?.removeAttribute("aria-invalid");
+
   const title = $("title").value.trim();
   if (!title) {
     showStatus("Le titre est obligatoire.", true);
@@ -1466,7 +1590,7 @@ document.addEventListener("submit", async (event) => {
 
   const work = {
     title,
-    summary: $("summary").value.trim() || null,
+    summary: serializeRichText($("summary").innerHTML),
     cover_url: $("coverUrl").value.trim() || null,
     original_language: $("originalLanguage").value.trim() || null,
     work_type: $("workType").value.trim() || null,
@@ -1701,8 +1825,42 @@ document.addEventListener("change", (event) => {
   }
 });
 
+document.addEventListener("mousedown", (event) => {
+  if (event.target.closest("[data-rich-command]")) event.preventDefault();
+});
+
+document.addEventListener("paste", (event) => {
+  const editor = event.target.closest("[data-rich-editor]");
+  if (!editor) return;
+  event.preventDefault();
+  const html = event.clipboardData?.getData("text/html");
+  const text = event.clipboardData?.getData("text/plain") || "";
+  const safeHTML = html
+    ? sanitizeRichText(html)
+    : escapeHTML(text).replace(/\r\n?|\n/g, "<br>");
+  editor.focus();
+  document.execCommand("insertHTML", false, safeHTML);
+});
+
+document.addEventListener("drop", (event) => {
+  const editor = event.target.closest("[data-rich-editor]");
+  if (!editor) return;
+  event.preventDefault();
+  const text = event.dataTransfer?.getData("text/plain") || "";
+  editor.focus();
+  document.execCommand("insertText", false, text);
+});
+
 document.addEventListener("click", async (event) => {
   const target = event.target;
+  const richTextTool = target.closest("[data-rich-command]");
+  if (richTextTool) {
+    const editor = richTextTool.closest(".rich-text-field")
+      ?.querySelector("[data-rich-editor]");
+    executeRichTextCommand(editor, richTextTool.dataset.richCommand);
+    return;
+  }
+
   if (!target.closest("#authorAutocomplete")) closeAuthorSuggestions();
 
   const authorSuggestion = target.closest("[data-author-suggestion]");
@@ -1872,12 +2030,40 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-rich-editor]")) {
+    event.target.removeAttribute("aria-invalid");
+    return;
+  }
   if (event.target.id !== "authorName") return;
   selectedAuthorSuggestion = null;
   updateAuthorSuggestions(event.target.value);
 });
 
 document.addEventListener("keydown", async (event) => {
+  const richTextEditor = event.target.closest("[data-rich-editor]");
+  if (richTextEditor && (event.ctrlKey || event.metaKey)) {
+    const key = event.key.toLowerCase();
+    const command = key === "b"
+      ? "bold"
+      : key === "i"
+      ? "italic"
+      : key === "u"
+      ? "underline"
+      : key === "z" && event.shiftKey
+      ? "redo"
+      : key === "z"
+      ? "undo"
+      : key === "y"
+      ? "redo"
+      : key === "x" && event.shiftKey
+      ? "strikeThrough"
+      : null;
+    if (command) {
+      event.preventDefault();
+      executeRichTextCommand(richTextEditor, command);
+    }
+    return;
+  }
   if (event.target.id !== "authorName") return;
   if (event.key === "Escape") {
     if (authorSuggestions.length) {

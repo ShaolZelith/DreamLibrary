@@ -154,7 +154,9 @@ test("bidirectional relations persist, reload, and display without a duplicate r
     `${functionBlock("relatedItemMarkup")}; relatedItemMarkup`,
     {
       escapeHTML: (value = "") => String(value),
+      isRichTextField: () => false,
       $: () => ({ value: "current-work" }),
+      richTextMarkup: () => "<div data-rich-editor></div>",
       works: [{ id: "related-work", title: "Œuvre liée" }],
       relatedEditor: { reading_sessions: [], editions: [], copies: [] },
       availableLocations: [],
@@ -199,7 +201,8 @@ test("bidirectional relations persist, reload, and display without a duplicate r
     `${functionBlock("detailFields")}; detailFields(record)`,
     {
       record: { direction: "both", is_bidirectional: true },
-      escapeHTML: (value = "") => String(value)
+      escapeHTML: (value = "") => String(value),
+      isRichTextField: () => false
     },
   );
   assert.match(detailsMarkup, /<dt>Direction<\/dt><dd>Dans les deux sens<\/dd>/);
@@ -211,6 +214,57 @@ test("detail cover remains in its layout position while the page scrolls", () =>
   assert.ok(coverRule, "detail cover wrapper has a CSS rule");
   assert.match(coverRule, /position:\s*static/);
   assert.doesNotMatch(coverRule, /position:\s*(?:sticky|fixed|absolute)/);
+});
+
+test("rich text tools cover prose fields while structured fields stay simple", () => {
+  for (const [label, field] of [
+    ["Notes", "notes"],
+    ["Critique", "review"],
+    ["Contenu", "content"],
+    ["Commentaire", "comment"]
+  ]) {
+    assert.match(frontend, new RegExp(`richTextMarkup\\("${label}[^"]*", "${field}"`));
+  }
+  assert.match(html, /id="summaryEditorMount"/);
+  assert.match(frontend, /richTextMarkup\(\s*"Résumé",\s*"summary"/);
+  assert.match(frontend, /contenteditable="true"/);
+  assert.match(frontend, /serializeRichText\(input\.innerHTML\)/);
+  assert.match(frontend, /summary: serializeRichText\(\$\("summary"\)\.innerHTML\)/);
+  assert.match(frontend, /function sanitizeRichText\(value\)/);
+  assert.match(frontend, /RICH_TEXT_PREFIX/);
+  assert.match(frontend, /function renderRichText\(value\)/);
+  assert.match(frontend, /Ctrl|metaKey|event\.ctrlKey/);
+  assert.match(frontend, /return sanitizeRichText\(value\.slice\(RICH_TEXT_PREFIX\.length\)\)/);
+  assert.match(frontend, /return escapeHTML\(value\)\.replace\(\/\\r\\n\?\\|\\n\/g, "<br>"\)/);
+  assert.match(frontend, /RICH_TEXT_TAGS = new Set/);
+  assert.match(frontend, /RICH_TEXT_REMOVED_TAGS = new Set/);
+  assert.doesNotMatch(frontend, /editorField\([^)]*"textarea"/);
+
+  const richMarkup = runInNewContext(
+    `${functionBlock("richTextMarkup")}; richTextMarkup("Critique", "review", "")`,
+    {
+      escapeHTML: (value = "") => String(value),
+      storedRichTextHTML: () => ""
+    },
+  );
+  for (const command of [
+    "bold", "italic", "underline", "strikeThrough",
+    "insertParagraph", "lineBreak", "insertUnorderedList",
+    "insertOrderedList", "undo", "redo"
+  ]) {
+    assert.match(richMarkup, new RegExp(`data-rich-command="${command}"`));
+  }
+  assert.match(richMarkup, /data-rich-editor data-related-field="review"/);
+
+  for (const simpleField of ["title", "authorName", "isbn", "publisher", "pages", "started_at"]) {
+    assert.doesNotMatch(frontend, new RegExp(`richTextMarkup\\([^\\n]*"${simpleField}"`));
+  }
+  assert.ok(frontend.includes(
+    'editorField("Année de publication", "publication_year", item.publication_year, "number"',
+  ));
+  assert.ok(frontend.includes(
+    'editorField("Date de début", "started_at", item.started_at, "date"',
+  ));
 });
 
 test("status writes preserve boolean true, false, and null", () => {
@@ -348,6 +402,7 @@ test("work editor exposes every persisted business field from the schema", () =>
       if (table === "works") {
         const inputId = {
           cover_url: "coverUrl",
+          summary: "summaryEditorMount",
           original_language: "originalLanguage",
           work_type: "workType",
           is_priority: "isPriority",
@@ -362,7 +417,7 @@ test("work editor exposes every persisted business field from the schema", () =>
     assert.equal(hasColumn("works", technical), true);
     assert.doesNotMatch(html, new RegExp(`id="${technical}"`));
   }
-  assert.match(frontend, /summary: \$\("summary"\)\.value\.trim\(\) \|\| null/);
+  assert.match(frontend, /summary: serializeRichText\(\$\("summary"\)\.innerHTML\)/);
   assert.match(frontend, /is_owned: selectedBoolean/);
   assert.match(frontend, /is_read: selectedBoolean/);
 });

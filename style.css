@@ -71,6 +71,73 @@ select:focus {
   outline-offset: 1px;
 }
 
+.rich-text-field {
+  min-width: 0;
+}
+
+.rich-text-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 6px;
+}
+
+.rich-text-tool {
+  min-width: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  background: #f5f1ec;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.rich-text-tool:hover {
+  background: #eae4de;
+}
+
+.rich-text-input {
+  min-height: 140px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: white;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.rich-text-input:focus {
+  outline: 2px solid #c7b29f;
+  outline-offset: 1px;
+}
+
+.rich-text-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.rich-text-input p,
+.rich-text-content p {
+  margin: 0 0 0.65em;
+}
+
+.rich-text-input p:last-child,
+.rich-text-content p:last-child {
+  margin-bottom: 0;
+}
+
+.rich-text-input ul,
+.rich-text-input ol,
+.rich-text-content ul,
+.rich-text-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.rich-text-content {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
 label {
   display: block;
   margin: 14px 0 6px;
