@@ -478,16 +478,17 @@ test("sorting is applied after current filters without reloading the library", (
   const render = functionBlock("renderWorks");
   assert.match(render, /sortWorks\(works\.filter\(/);
   assert.match(render, /\$\("workSort"\)\.value/);
-  const sortEvents = frontend.slice(
-    frontend.indexOf('["search", "workTypeFilter", "priorityFilter", "workSort"]'),
+  const sortEvents = frontend.match(
+    /\[\s*"search",[\s\S]*?\]\.forEach\(\(id\) => \{\s*\$\(id\)\.addEventListener\("input", renderWorks\);\s*\$\(id\)\.addEventListener\("change", renderWorks\);\s*\}\);/,
   );
-  assert.match(sortEvents, /\$\(id\)\.addEventListener\("input", renderWorks\)/);
-  assert.match(sortEvents, /\$\(id\)\.addEventListener\("change", renderWorks\)/);
-  assert.doesNotMatch(sortEvents, /loadWorks\(/);
+  assert.ok(sortEvents, "all filter and sort controls rerender the list on change");
+  assert.doesNotMatch(sortEvents[0], /loadWorks\(/);
   const controls = {
     search: { value: "rose" },
     workTypeFilter: { value: "Roman" },
     priorityFilter: { value: "true" },
+    ownershipFilter: { value: "all" },
+    readingStatusFilter: { value: "all" },
     workSort: { value: "title-asc" },
     workCount: { textContent: "" },
     workGrid: {
@@ -519,4 +520,131 @@ test("sorting is applied after current filters without reloading the library", (
   );
   const sortOptions = html.slice(html.indexOf('id="workSort"'), html.indexOf("</select>", html.indexOf('id="workSort"')));
   assert.equal((sortOptions.match(/<option\b/g) || []).length, 11);
+});
+
+test("possession and reading filters expose the persisted nullable work flags", () => {
+  for (const column of ["is_owned", "is_read"]) {
+    assert.equal(hasColumn("works", column), true, column);
+    const schemaRow = columnsSnapshot.split(/\r?\n/).find((line) => {
+      const fields = line.split("|").map((field) => field.trim());
+      return fields[1] === "works" && fields[3] === column;
+    });
+    assert.equal(schemaRow.split("|").map((field) => field.trim())[6], "YES");
+  }
+  assert.match(actionBlock("works_list"), /\.select\("[^"]*is_read, is_owned, created_at"\)/);
+
+  const ownershipFilter = html.slice(
+    html.indexOf('id="ownershipFilter"'),
+    html.indexOf("</select>", html.indexOf('id="ownershipFilter"')),
+  );
+  assert.match(ownershipFilter, /<option value="all">Tous les livres<\/option>/);
+  assert.match(ownershipFilter, /<option value="true">Possédé<\/option>/);
+  assert.match(ownershipFilter, /<option value="false">Non possédé<\/option>/);
+
+  const readingFilter = html.slice(
+    html.indexOf('id="readingStatusFilter"'),
+    html.indexOf("</select>", html.indexOf('id="readingStatusFilter"')),
+  );
+  assert.match(readingFilter, /<option value="all">Tous les états<\/option>/);
+  assert.match(readingFilter, /<option value="true">Lu<\/option>/);
+  assert.match(readingFilter, /<option value="false">Non lu<\/option>/);
+});
+
+test("possession and reading filters combine with search and sorting", () => {
+  const controls = {
+    search: { value: "" },
+    workTypeFilter: { value: "all" },
+    priorityFilter: { value: "all" },
+    ownershipFilter: { value: "all" },
+    readingStatusFilter: { value: "all" },
+    workSort: { value: "title-asc" },
+    workCount: { textContent: "" },
+    workGrid: {
+      innerHTML: "",
+      querySelectorAll: () => []
+    }
+  };
+  const filteredWorks = [
+    { id: "owned-unread", title: "Rose Zèbre", work_type: "Roman", is_priority: false, is_owned: true, is_read: false, authors: [], tags: [] },
+    { id: "owned-read", title: "Rose Alpha", work_type: "Roman", is_priority: false, is_owned: true, is_read: true, authors: [], tags: [] },
+    { id: "not-owned-unread", title: "Rose Beta", work_type: "Roman", is_priority: false, is_owned: false, is_read: false, authors: [], tags: [] },
+    { id: "not-owned-read", title: "Rose Gamma", work_type: "Roman", is_priority: false, is_owned: false, is_read: true, authors: [], tags: [] },
+    { id: "unknown", title: "Rose Delta", work_type: "Roman", is_priority: false, is_owned: null, is_read: null, authors: [], tags: [] },
+    { id: "other-search", title: "Autre", work_type: "Roman", is_priority: false, is_owned: true, is_read: false, authors: [], tags: [] }
+  ];
+  const context = {
+    $: (id) => controls[id],
+    works: filteredWorks,
+    selectedWorkId: "",
+    escapeHTML: (value) => String(value),
+    displayName: (item) => item.name || item
+  };
+  const render = runInNewContext(
+    `${functionBlock("sortWorks")}\n${functionBlock("renderWorks")}; renderWorks`,
+    context,
+  );
+  const visibleIds = () => Array.from(
+    controls.workGrid.innerHTML.matchAll(/data-work-select="([^"]+)"/g),
+    (match) => match[1],
+  );
+
+  controls.ownershipFilter.value = "true";
+  render();
+  assert.deepEqual(visibleIds(), ["other-search", "owned-read", "owned-unread"]);
+
+  controls.ownershipFilter.value = "false";
+  controls.readingStatusFilter.value = "true";
+  render();
+  assert.deepEqual(visibleIds(), ["not-owned-read"]);
+
+  controls.ownershipFilter.value = "all";
+  controls.readingStatusFilter.value = "false";
+  render();
+  assert.deepEqual(visibleIds(), ["other-search", "not-owned-unread", "owned-unread"]);
+
+  controls.search.value = "rose";
+  controls.ownershipFilter.value = "true";
+  controls.readingStatusFilter.value = "false";
+  controls.workSort.value = "title-desc";
+  render();
+  assert.deepEqual(visibleIds(), ["owned-unread"]);
+  assert.match(controls.workGrid.innerHTML, /Rose Zèbre/);
+
+  controls.ownershipFilter.value = "all";
+  controls.readingStatusFilter.value = "all";
+  controls.search.value = "absent";
+  render();
+  assert.match(controls.workGrid.innerHTML, /Aucun livre ne correspond aux filtres et à la recherche/);
+});
+
+test("reset filters clears filters but preserves the selected sort", () => {
+  const controls = {
+    search: { value: "recherche" },
+    workTypeFilter: { value: "Roman" },
+    priorityFilter: { value: "true" },
+    ownershipFilter: { value: "false" },
+    readingStatusFilter: { value: "true" },
+    workSort: { value: "title-desc" }
+  };
+  let renderCount = 0;
+  const reset = runInNewContext(
+    `${functionBlock("resetWorkFilters")}; resetWorkFilters`,
+    {
+      $: (id) => controls[id],
+      renderWorks: () => { renderCount += 1; }
+    },
+  );
+  reset();
+
+  assert.equal(controls.search.value, "");
+  for (const id of [
+    "workTypeFilter", "priorityFilter", "ownershipFilter", "readingStatusFilter"
+  ]) {
+    assert.equal(controls[id].value, "all");
+  }
+  assert.equal(controls.workSort.value, "title-desc");
+  assert.equal(renderCount, 1);
+  assert.match(html, /id="resetFiltersButton"/);
+  assert.match(frontend, /\$\("resetFiltersButton"\)\.addEventListener\("click", resetWorkFilters\)/);
+  assert.match(frontend, /"ownershipFilter",\s*"readingStatusFilter",\s*"workSort"/);
 });

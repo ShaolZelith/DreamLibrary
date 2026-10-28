@@ -1048,6 +1048,8 @@ function renderWorks() {
   const query = $("search").value.trim().toLocaleLowerCase("fr");
   const workType = $("workTypeFilter").value;
   const priority = $("priorityFilter").value;
+  const ownership = $("ownershipFilter").value;
+  const readingStatus = $("readingStatusFilter").value;
 
   const filtered = sortWorks(works.filter((work) => {
     const matchesQuery =
@@ -1058,7 +1060,12 @@ function renderWorks() {
     const matchesType = workType === "all" || work.work_type === workType;
     const matchesPriority =
       priority === "all" || String(work.is_priority) === priority;
-    return matchesQuery && matchesType && matchesPriority;
+    const matchesOwnership =
+      ownership === "all" || work.is_owned === (ownership === "true");
+    const matchesReadingStatus =
+      readingStatus === "all" || work.is_read === (readingStatus === "true");
+    return matchesQuery && matchesType && matchesPriority &&
+      matchesOwnership && matchesReadingStatus;
   }), $("workSort").value);
 
   $("workCount").textContent =
@@ -1066,7 +1073,7 @@ function renderWorks() {
 
   const grid = $("workGrid");
   if (!filtered.length) {
-    grid.innerHTML = '<p class="empty-state">Aucune œuvre trouvée.</p>';
+    grid.innerHTML = '<p class="empty-state">Aucun livre ne correspond aux filtres et à la recherche.</p>';
     return;
   }
 
@@ -1121,6 +1128,15 @@ function renderWorks() {
       img.replaceWith(fallback);
     }, { once: true });
   });
+}
+
+function resetWorkFilters() {
+  $("search").value = "";
+  $("workTypeFilter").value = "all";
+  $("priorityFilter").value = "all";
+  $("ownershipFilter").value = "all";
+  $("readingStatusFilter").value = "all";
+  renderWorks();
 }
 
 function renderWorkEditor(mode, work = null, details = null) {
@@ -1617,6 +1633,7 @@ async function deleteWork(id) {
 }
 
 $("logoutButton").addEventListener("click", logout);
+$("resetFiltersButton").addEventListener("click", resetWorkFilters);
 
 document.addEventListener("change", (event) => {
   for (const [positiveId, negativeId] of [
@@ -1841,7 +1858,14 @@ document.addEventListener("keydown", async (event) => {
   }
 });
 
-["search", "workTypeFilter", "priorityFilter", "workSort"].forEach((id) => {
+[
+  "search",
+  "workTypeFilter",
+  "priorityFilter",
+  "ownershipFilter",
+  "readingStatusFilter",
+  "workSort"
+].forEach((id) => {
   $(id).addEventListener("input", renderWorks);
   $(id).addEventListener("change", renderWorks);
 });

@@ -57,6 +57,24 @@
             <option value="false">Non prioritaires</option>
           </select>
 
+          <label class="filter-control" for="ownershipFilter">
+            <span>Possession</span>
+            <select id="ownershipFilter">
+              <option value="all">Tous les livres</option>
+              <option value="true">Possédé</option>
+              <option value="false">Non possédé</option>
+            </select>
+          </label>
+
+          <label class="filter-control" for="readingStatusFilter">
+            <span>État de lecture</span>
+            <select id="readingStatusFilter">
+              <option value="all">Tous les états</option>
+              <option value="true">Lu</option>
+              <option value="false">Non lu</option>
+            </select>
+          </label>
+
           <label class="sort-control" for="workSort">
             <span>Trier par</span>
             <select id="workSort" aria-describedby="sortHelp">
@@ -73,6 +91,11 @@
               <option value="tag-asc">Genre ou catégorie : A → Z</option>
             </select>
           </label>
+          <div class="filter-actions">
+            <button type="button" id="resetFiltersButton" class="secondary-button">
+              Réinitialiser les filtres
+            </button>
+          </div>
         </div>
         <p id="sortHelp" class="sort-help">
           Plusieurs auteurs : le premier selon l’ordre enregistré. Plusieurs éditions : l’année la plus ancienne.
