@@ -499,6 +499,12 @@ main {
   font-size: 1.1rem;
 }
 
+.book-cover.is-default-cover {
+  padding: 32px;
+  background: #eae1d6;
+  object-fit: contain;
+}
+
 .book-info {
   padding: 14px;
 }

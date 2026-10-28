@@ -1,6 +1,7 @@
 const SUPABASE_URL = "https://itbmwxnqeajiequjdezh.supabase.co";
 const SUPABASE_KEY = "sb_publishable_wyI9gQlY6JxcZ6EskKxCCQ_Of9BZBZF";
 const EDIT_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/dream-library-edit`;
+const DEFAULT_COVER_IMAGE = "./assets/default-book-cover.png";
 const RICH_TEXT_PREFIX = "dream-library-rich-text:v1\n";
 const RICH_TEXT_TAGS = new Set([
   "b", "strong", "i", "em", "u", "s", "strike", "br", "p", "ul", "ol", "li"
@@ -196,6 +197,30 @@ function isRichTextField(field) {
 function renderRichText(value) {
   const html = storedRichTextHTML(value);
   return html ? `<div class="rich-text-content">${html}</div>` : "";
+}
+
+function coverImageMarkup(work, className, loading = false) {
+  const src = work.cover_url || DEFAULT_COVER_IMAGE;
+  const defaultClass = work.cover_url ? "" : " is-default-cover";
+  return `<img class="${className}${defaultClass}" src="${escapeHTML(src)}" alt="Couverture de ${escapeHTML(work.title)}"${loading ? ' loading="lazy"' : ""}>`;
+}
+
+function attachCoverFallbacks(container) {
+  container.querySelectorAll("img.book-cover, img.detail-cover").forEach((img) => {
+    img.addEventListener("error", () => {
+      const defaultCoverUrl = new URL(DEFAULT_COVER_IMAGE, document.baseURI).href;
+      if (img.src !== defaultCoverUrl) {
+        img.src = DEFAULT_COVER_IMAGE;
+        img.classList.add("is-default-cover");
+        return;
+      }
+
+      const fallback = document.createElement("div");
+      fallback.className = img.className;
+      fallback.textContent = img.alt.replace("Couverture de ", "");
+      img.replaceWith(fallback);
+    }, { once: true });
+  });
 }
 
 function detailFields(record, excluded = []) {
@@ -935,9 +960,7 @@ function renderWorkDetails(details) {
   const detailTags = Array.isArray(details.tags) ? details.tags : [];
   const workTags = Array.isArray(work.tags) ? work.tags : [];
   const tags = (detailTags.length ? detailTags : workTags).map(displayName).filter(Boolean);
-  const cover = work.cover_url
-    ? `<img class="detail-cover" src="${escapeHTML(work.cover_url)}" alt="Couverture de ${escapeHTML(work.title)}">`
-    : "";
+  const cover = coverImageMarkup(work, "detail-cover");
   const statusBadges = [
     work.is_priority ? '<span class="badge priority">Prioritaire</span>' : "",
     work.is_owned === true ? '<span class="badge owned">Possédé</span>' : "",
@@ -987,7 +1010,7 @@ function renderWorkDetails(details) {
       <button type="button" class="detail-close" data-close-details>Fermer les détails</button>
     </div>
     <div class="detail-content">
-      ${cover ? `<div class="detail-cover-wrap">${cover}</div>` : ""}
+      <div class="detail-cover-wrap">${cover}</div>
       <div class="detail-main">
         ${authorsSection}
         ${generalSection}
@@ -1005,6 +1028,7 @@ function renderWorkDetails(details) {
     ${actions}
   `;
   panel.classList.remove("hidden");
+  attachCoverFallbacks(panel);
   positionWorkDetailsInGrid();
   panel.querySelector("[data-close-details]").addEventListener("click", closeWorkDetails);
   panel.querySelector("[data-detail-edit]")?.addEventListener("click", () => {
@@ -1246,9 +1270,7 @@ function renderWorks() {
   }
 
   grid.innerHTML = filtered.map((work) => {
-    const cover = work.cover_url
-      ? `<img class="book-cover" src="${escapeHTML(work.cover_url)}" alt="Couverture de ${escapeHTML(work.title)}" loading="lazy">`
-      : `<div class="book-cover">${escapeHTML(work.title)}</div>`;
+    const cover = coverImageMarkup(work, "book-cover", true);
     const authorNames = work.authors.length
       ? work.authors.map((author) => {
         const role = author.role && author.role !== "author"
@@ -1281,14 +1303,7 @@ function renderWorks() {
 
   positionWorkDetailsInGrid();
 
-  grid.querySelectorAll("img.book-cover").forEach((img) => {
-    img.addEventListener("error", () => {
-      const fallback = document.createElement("div");
-      fallback.className = "book-cover";
-      fallback.textContent = img.alt.replace("Couverture de ", "");
-      img.replaceWith(fallback);
-    }, { once: true });
-  });
+  attachCoverFallbacks(grid);
 }
 
 function resetWorkFilters() {

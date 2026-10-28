@@ -32,6 +32,9 @@ const bidirectionalRelationsMigration = readFileSync(
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const frontend = readFileSync(new URL("../script.js", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+const defaultCoverImage = readFileSync(
+  new URL("../assets/default-book-cover.png", import.meta.url),
+);
 
 function hasColumn(table, column) {
   return columnsSnapshot.split(/\r?\n/).some((line) => {
@@ -265,6 +268,31 @@ test("rich text tools cover prose fields while structured fields stay simple", (
   assert.ok(frontend.includes(
     'editorField("Date de début", "started_at", item.started_at, "date"',
   ));
+});
+
+test("the provided image is the default cover while explicit cover URLs are preserved", () => {
+  assert.deepEqual(
+    [...defaultCoverImage.subarray(0, 8)],
+    [137, 80, 78, 71, 13, 10, 26, 10],
+  );
+  const markup = runInNewContext(
+    `${functionBlock("coverImageMarkup")}; ({ missing: coverImageMarkup({ title: "Sans couverture", cover_url: "" }, "book-cover"), provided: coverImageMarkup({ title: "Couverture choisie", cover_url: "https://example.test/cover.jpg" }, "detail-cover") })`,
+    {
+      DEFAULT_COVER_IMAGE: "./assets/default-book-cover.png",
+      escapeHTML: (value = "") => String(value)
+    },
+  );
+  assert.match(markup.missing, /src="\.\/assets\/default-book-cover\.png"/);
+  assert.match(markup.missing, /class="book-cover is-default-cover"/);
+  assert.match(markup.provided, /src="https:\/\/example\.test\/cover\.jpg"/);
+  assert.doesNotMatch(markup.provided, /is-default-cover/);
+  assert.match(stylesheet, /\.book-cover\.is-default-cover\s*\{[^}]*object-fit:\s*contain/s);
+  assert.match(stylesheet, /\.book-cover\.is-default-cover\s*\{[^}]*background:\s*#eae1d6/s);
+  assert.match(stylesheet, /\.book-cover\s*\{[^}]*object-fit:\s*cover/s);
+  assert.match(frontend, /attachCoverFallbacks\(panel\)/);
+  assert.match(frontend, /attachCoverFallbacks\(grid\)/);
+  assert.match(frontend, /img\.src = DEFAULT_COVER_IMAGE/);
+  assert.match(frontend, /img\.classList\.add\("is-default-cover"\)/);
 });
 
 test("status writes preserve boolean true, false, and null", () => {
@@ -674,7 +702,11 @@ test("sorting is applied after current filters without reloading the library", (
       selectedWorkId: "",
       positionWorkDetailsInGrid: () => {},
       escapeHTML: (value) => String(value),
-      displayName: (item) => item.name || item
+      displayName: (item) => item.name || item,
+      DEFAULT_COVER_IMAGE: "./assets/default-book-cover.png",
+      coverImageMarkup: (work, className, loading) =>
+        `<img class="${className}" src="${work.cover_url || "./assets/default-book-cover.png"}"${loading ? ' loading="lazy"' : ""}>`,
+      attachCoverFallbacks: () => {}
     },
   );
   renderFiltered();
@@ -744,7 +776,11 @@ test("possession and reading filters combine with search and sorting", () => {
     selectedWorkId: "",
     positionWorkDetailsInGrid: () => {},
     escapeHTML: (value) => String(value),
-    displayName: (item) => item.name || item
+    displayName: (item) => item.name || item,
+    DEFAULT_COVER_IMAGE: "./assets/default-book-cover.png",
+    coverImageMarkup: (work, className, loading) =>
+      `<img class="${className}" src="${work.cover_url || "./assets/default-book-cover.png"}"${loading ? ' loading="lazy"' : ""}>`,
+    attachCoverFallbacks: () => {}
   };
   const render = runInNewContext(
     `${functionBlock("sortWorks")}\n${functionBlock("renderWorks")}; renderWorks`,
