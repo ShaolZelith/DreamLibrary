@@ -506,7 +506,7 @@ test("related-record writes and location reads require the appropriate access", 
   }
 });
 
-test("author editor supports role and ordering while defaulting new links to author", () => {
+test("author editor supports multiple names with simple removal and hidden default role", () => {
   assert.match(html, /label for="authorName">Nom de l’auteur/);
   assert.match(html, /id="authorName" maxlength="300"/);
   assert.match(html, /id="addAuthor">Ajouter/);
@@ -516,8 +516,8 @@ test("author editor supports role and ordering while defaulting new links to aut
   assert.doesNotMatch(html, /authorSelect|addExistingAuthor|newAuthorName|addNewAuthor/);
   assert.doesNotMatch(frontend, /\$\("(?:authorSelect|newAuthorName)"\)/);
   assert.match(frontend, /role: "author"/);
-  assert.match(frontend, /data-author-role/);
-  assert.match(frontend, /data-move-author/);
+  const renderSelected = functionBlock("renderSelectedAuthors");
+  assert.doesNotMatch(renderSelected, /data-author-role|data-move-author|Rôle|Auteur par défaut/);
   assert.match(frontend, /data-remove-author/);
 });
 
@@ -537,6 +537,39 @@ test("author suggestions are filtered locally from the limited authors list", ()
   assert.match(updateSuggestions, /\.slice\(0, 8\)/);
   assert.doesNotMatch(updateSuggestions, /editRequest|fetch\(/);
   assert.match(frontend, /loadAuthors\(\)\.catch/);
+});
+
+test("the author editor displays names only and preserves stored roles internally", () => {
+  const renderSelected = functionBlock("renderSelectedAuthors");
+  const renderSuggestions = functionBlock("updateAuthorSuggestions");
+  assert.match(renderSuggestions, /option\.textContent = author\.name/);
+  assert.doesNotMatch(renderSelected, /author\.role|Rôle|Auteur par défaut|data-move-author/);
+  assert.match(frontend, /role: author\.role \|\| "author"/);
+  assert.match(frontend, /role: author\.role,/);
+  assert.match(frontend, /author\.role === selected\.role/);
+
+  const container = {
+    rendered: "",
+    set innerHTML(value) { this.rendered = value; },
+    get innerHTML() { return this.rendered; },
+    querySelectorAll: () => []
+  };
+  const markup = runInNewContext(
+    `${renderSelected}; renderSelectedAuthors(); container.innerHTML`,
+    {
+      selectedAuthors: [
+        { name: "Auteur existant", role: "author" },
+        { name: "Illustrateur", role: "illustrator" }
+      ],
+      escapeHTML: (value = "") => String(value),
+      $: () => container,
+      container
+    },
+  );
+  assert.match(markup, /<strong>Auteur existant<\/strong>/);
+  assert.match(markup, /<strong>Illustrateur<\/strong>/);
+  assert.match(markup, /data-remove-author="0">Retirer/);
+  assert.doesNotMatch(markup, /Rôle|Auteur par défaut|↑|↓/);
 });
 
 test("selecting a suggestion does not resolve or create an author", () => {

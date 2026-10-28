@@ -414,20 +414,8 @@ function renderSelectedAuthors() {
 
   container.innerHTML = selectedAuthors.map((author, index) => `
     <div class="selected-author">
-      <div>
-        <strong>${escapeHTML(author.name)}</strong>
-        <label>Rôle
-          <input type="text" maxlength="80" data-author-role="${index}"
-            value="${escapeHTML(author.role || "author")}">
-        </label>
-      </div>
-      <div class="author-order-actions">
-        <button type="button" class="secondary-button" data-move-author="${index}" data-direction="-1"
-          aria-label="Monter l’auteur" ${index === 0 ? "disabled" : ""}>↑</button>
-        <button type="button" class="secondary-button" data-move-author="${index}" data-direction="1"
-          aria-label="Descendre l’auteur" ${index === selectedAuthors.length - 1 ? "disabled" : ""}>↓</button>
+      <strong>${escapeHTML(author.name)}</strong>
       <button type="button" data-remove-author="${index}">Retirer</button>
-      </div>
     </div>
   `).join("");
 
@@ -438,25 +426,6 @@ function renderSelectedAuthors() {
       selectedAuthors = selectedAuthors.map((author, index) => ({
         ...author,
         position: index + 1
-      }));
-      renderSelectedAuthors();
-    });
-  });
-  container.querySelectorAll("[data-author-role]").forEach((input) => {
-    input.addEventListener("input", () => {
-      selectedAuthors[Number(input.dataset.authorRole)].role = input.value.trim() || "author";
-    });
-  });
-  container.querySelectorAll("[data-move-author]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const index = Number(button.dataset.moveAuthor);
-      const nextIndex = index + Number(button.dataset.direction);
-      if (nextIndex < 0 || nextIndex >= selectedAuthors.length) return;
-      [selectedAuthors[index], selectedAuthors[nextIndex]] =
-        [selectedAuthors[nextIndex], selectedAuthors[index]];
-      selectedAuthors = selectedAuthors.map((author, authorIndex) => ({
-        ...author,
-        position: authorIndex + 1
       }));
       renderSelectedAuthors();
     });
