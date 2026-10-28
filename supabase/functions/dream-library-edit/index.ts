@@ -467,6 +467,40 @@ Deno.serve(async (req) => {
       return reply({ authors: data });
     }
 
+    if (action === "authors_resolve") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (
+        typeof body.name !== "string" ||
+        !body.name.trim() ||
+        body.name.trim().length > 300
+      ) {
+        return reply({ error: "Nom d’auteur invalide" }, 400);
+      }
+
+      const { data, error } = await supabase.rpc("resolve_author", {
+        p_name: body.name.trim(),
+      });
+      if (error) {
+        return replyDatabaseError(
+          "authors_resolve",
+          "Impossible de retrouver ou créer l’auteur",
+          error,
+        );
+      }
+      if (
+        !Array.isArray(data) ||
+        data.length !== 1 ||
+        !isRecord(data[0]) ||
+        typeof data[0].id !== "string" ||
+        typeof data[0].name !== "string"
+      ) {
+        return reply({ error: "La base n’a pas confirmé la résolution de l’auteur" }, 500);
+      }
+      return reply({ author: data[0] });
+    }
+
     if (action === "tags_list") {
       const { data, error } = await supabase
         .from("tags")
@@ -691,6 +725,7 @@ Deno.serve(async (req) => {
         workAuthors.flatMap((author) => author.id ? [author.id] : []),
       )];
       const authorIdsByName = new Map<string, string>();
+      const authorNamesById = new Map<string, string>();
       if (selectedAuthorIds.length) {
         const { data: selectedRows, error: selectedError } = await supabase
           .from("authors")
@@ -708,30 +743,37 @@ Deno.serve(async (req) => {
         }
         for (const author of selectedRows) {
           authorIdsByName.set(author.name, author.id);
+          authorNamesById.set(author.id, author.name);
         }
       }
 
       const newAuthorNames = [...new Set(
         workAuthors.filter((author) => !author.id).map(({ name }) => name),
       )];
-      if (newAuthorNames.length) {
-        const authorRows = newAuthorNames
-          .map((name) => ({ name }));
-        const { data: savedAuthors, error: saveAuthorsError } = await supabase
-          .from("authors")
-          .upsert(authorRows, { onConflict: "name" })
-          .select("id, name");
-
-        if (saveAuthorsError) {
+      for (const name of newAuthorNames) {
+        const { data, error } = await supabase.rpc("resolve_author", {
+          p_name: name,
+        });
+        if (error) {
           return replyDatabaseError(
             "works_authors_set",
             "Impossible d'enregistrer les auteurs",
-            saveAuthorsError,
+            error,
           );
         }
-        for (const author of savedAuthors) {
-          authorIdsByName.set(author.name, author.id);
+        if (
+          !Array.isArray(data) ||
+          data.length !== 1 ||
+          !isRecord(data[0]) ||
+          typeof data[0].id !== "string" ||
+          typeof data[0].name !== "string"
+        ) {
+          return reply({
+            error: "La base n’a pas confirmé l’enregistrement d’un auteur",
+          }, 500);
         }
+        authorIdsByName.set(name, data[0].id);
+        authorNamesById.set(data[0].id, data[0].name);
       }
 
       const newLinks: {
@@ -789,7 +831,7 @@ Deno.serve(async (req) => {
       return reply({
         authors: newLinks.map((link, index) => ({
           id: link.author_id,
-          name: workAuthors[index].name,
+          name: authorNamesById.get(link.author_id) || workAuthors[index].name,
           role: link.role,
           position: link.position,
         })),

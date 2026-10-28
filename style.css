@@ -191,6 +191,40 @@ main {
   gap: 9px;
 }
 
+.author-autocomplete {
+  position: relative;
+  min-width: 0;
+}
+
+.author-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 5px 16px #49321a18;
+  list-style: none;
+}
+
+.author-suggestions li {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.author-suggestions li:hover,
+.author-suggestions li[aria-selected="true"] {
+  background: #f2eee9;
+}
+
 .author-entry + label {
   margin-top: 20px;
 }

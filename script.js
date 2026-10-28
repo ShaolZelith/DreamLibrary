@@ -8,6 +8,10 @@ let works = [];
 let selectedWorkId = "";
 let availableAuthors = [];
 let selectedAuthors = [];
+let authorSuggestions = [];
+let selectedAuthorSuggestion = null;
+let authorListRequestId = 0;
+let activeAuthorSuggestionIndex = -1;
 let availableTags = [];
 let selectedTags = [];
 let tagsEdited = false;
@@ -201,14 +205,40 @@ async function loadWorks() {
   }
 }
 
+function normalizeAuthorName(name) {
+  return name.trim().toLocaleLowerCase("fr");
+}
+
 async function loadAuthors() {
-  const result = await editRequest("authors_list");
+  const requestId = ++authorListRequestId;
+  const password = accessPassword;
+  let result;
+  try {
+    result = await editRequest("authors_list");
+  } catch (error) {
+    if (
+      requestId !== authorListRequestId ||
+      password !== accessPassword ||
+      accessLevel !== "edit"
+    ) return;
+    throw error;
+  }
   if (!Array.isArray(result.authors)) {
     throw new Error("Réponse invalide : la liste des auteurs est absente.");
   }
-  availableAuthors = result.authors;
-  renderAuthorOptions();
+  if (
+    requestId !== authorListRequestId ||
+    password !== accessPassword ||
+    accessLevel !== "edit"
+  ) return;
+
+  availableAuthors = result.authors.filter((author) =>
+    author &&
+    typeof author.id === "string" &&
+    typeof author.name === "string"
+  );
   showAuthorStatus("");
+  updateAuthorSuggestions($("authorName")?.value || "");
 }
 
 async function loadTags() {
@@ -217,19 +247,6 @@ async function loadTags() {
     throw new Error("Réponse invalide : la liste des tags est absente.");
   }
   availableTags = result.tags;
-}
-
-function renderAuthorOptions() {
-  const select = $("authorSelect");
-  if (!select) return;
-  const selectedId = select.value;
-  select.replaceChildren(new Option("Choisir un auteur…", ""));
-  availableAuthors.forEach((author) => {
-    select.add(new Option(author.name, author.id));
-  });
-  select.value = availableAuthors.some((author) => author.id === selectedId)
-    ? selectedId
-    : "";
 }
 
 function renderSelectedAuthors() {
@@ -260,6 +277,85 @@ function renderSelectedAuthors() {
       renderSelectedAuthors();
     });
   });
+}
+
+function closeAuthorSuggestions() {
+  const input = $("authorName");
+  const list = $("authorSuggestions");
+  if (!input || !list) return;
+  authorSuggestions = [];
+  activeAuthorSuggestionIndex = -1;
+  list.replaceChildren();
+  list.classList.add("hidden");
+  input.setAttribute("aria-expanded", "false");
+  input.removeAttribute("aria-activedescendant");
+}
+
+function updateAuthorSuggestions(value) {
+  const input = $("authorName");
+  const list = $("authorSuggestions");
+  if (!input || !list) return;
+
+  const query = normalizeAuthorName(value);
+  const selectedIds = new Set(selectedAuthors.flatMap((author) =>
+    typeof author.id === "string" ? [author.id] : []
+  ));
+  const selectedNames = new Set(selectedAuthors.map((author) =>
+    normalizeAuthorName(author.name)
+  ));
+  const seenNames = new Set();
+  authorSuggestions = query.length >= 2
+    ? availableAuthors.filter((author) => {
+      const normalizedName = normalizeAuthorName(author.name);
+      if (
+        !normalizedName.includes(query) ||
+        selectedIds.has(author.id) ||
+        selectedNames.has(normalizedName) ||
+        seenNames.has(normalizedName)
+      ) return false;
+      seenNames.add(normalizedName);
+      return true;
+    }).slice(0, 8)
+    : [];
+
+  activeAuthorSuggestionIndex = -1;
+  list.replaceChildren(...authorSuggestions.map((author, index) => {
+    const option = document.createElement("li");
+    option.id = `author-suggestion-${index}`;
+    option.dataset.authorSuggestion = author.id;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", "false");
+    option.textContent = author.name;
+    return option;
+  }));
+  const isOpen = authorSuggestions.length > 0;
+  list.classList.toggle("hidden", !isOpen);
+  input.setAttribute("aria-expanded", String(isOpen));
+  input.removeAttribute("aria-activedescendant");
+}
+
+function setActiveAuthorSuggestion(index) {
+  if (!authorSuggestions.length) return;
+  activeAuthorSuggestionIndex = (
+    index + authorSuggestions.length
+  ) % authorSuggestions.length;
+  const options = $("authorSuggestions").querySelectorAll('[role="option"]');
+  options.forEach((option, optionIndex) => {
+    const isActive = optionIndex === activeAuthorSuggestionIndex;
+    option.setAttribute("aria-selected", String(isActive));
+  });
+  $("authorName").setAttribute(
+    "aria-activedescendant",
+    `author-suggestion-${activeAuthorSuggestionIndex}`,
+  );
+}
+
+function selectAuthorSuggestion(author) {
+  if (!author) return;
+  selectedAuthorSuggestion = author;
+  $("authorName").value = author.name;
+  closeAuthorSuggestions();
+  showAuthorStatus("");
 }
 
 function renderSelectedTags() {
@@ -295,12 +391,13 @@ function renderTagOptions() {
 
 function addSelectedAuthor(author) {
   if (accessLevel !== "edit") return false;
-  const key = `${author.name.trim().toLocaleLowerCase("fr")}\u0000${author.role.toLocaleLowerCase("fr")}`;
+  const key = normalizeAuthorName(author.name);
   const duplicate = selectedAuthors.some((item) =>
-    `${item.name.trim().toLocaleLowerCase("fr")}\u0000${item.role.toLocaleLowerCase("fr")}` === key
+    (author.id && item.id === author.id) ||
+    normalizeAuthorName(item.name) === key
   );
   if (duplicate) {
-    showStatus("Cet auteur avec ce rôle est déjà associé.", true);
+    showAuthorStatus("Cet auteur est déjà associé.", true);
     return false;
   }
 
@@ -311,31 +408,75 @@ function addSelectedAuthor(author) {
   return true;
 }
 
-function getAuthorsForSubmission() {
-  const authors = [...selectedAuthors];
-  const selectedId = $("authorSelect").value;
-  if (selectedId) {
-    const author = availableAuthors.find((item) => item.id === selectedId);
-    if (!author) throw new Error("L’auteur sélectionné n’existe plus. Recharge la liste.");
-    authors.push({
+async function addAuthorFromInput() {
+  if (accessLevel !== "edit") return;
+  const input = $("authorName");
+  const name = input.value.trim();
+  if (!name) {
+    showAuthorStatus("Saisis le nom de l’auteur.", true);
+    return;
+  }
+
+  const normalizedName = normalizeAuthorName(name);
+  if (selectedAuthors.some((author) =>
+    (selectedAuthorSuggestion?.id && author.id === selectedAuthorSuggestion.id) ||
+    normalizeAuthorName(author.name) === normalizedName
+  )) {
+    showAuthorStatus("Cet auteur est déjà associé.", true);
+    return;
+  }
+
+  const button = $("addAuthor");
+  button.disabled = true;
+  try {
+    let author = selectedAuthorSuggestion &&
+        normalizeAuthorName(selectedAuthorSuggestion.name) === normalizedName
+      ? selectedAuthorSuggestion
+      : null;
+    if (!author) {
+      const result = await editRequest(
+        "authors_resolve",
+        accessPassword,
+        null,
+        null,
+        { name }
+      );
+      if (
+        !result.author ||
+        typeof result.author.id !== "string" ||
+        typeof result.author.name !== "string" ||
+        !result.author.name.trim()
+      ) {
+        throw new Error("La fonction n’a pas confirmé la résolution de l’auteur.");
+      }
+      author = result.author;
+    }
+
+    if (!availableAuthors.some((item) => item.id === author.id)) {
+      availableAuthors.push({ id: author.id, name: author.name });
+    }
+    if (addSelectedAuthor({
       id: author.id,
       name: author.name,
       role: "author"
-    });
+    })) {
+      input.value = "";
+      selectedAuthorSuggestion = null;
+      closeAuthorSuggestions();
+    }
+  } catch (error) {
+    showAuthorStatus(error.message || "Impossible d’ajouter l’auteur.", true);
+    console.error("authors_resolve failed", error);
+  } finally {
+    button.disabled = false;
   }
+}
 
-  const newName = $("newAuthorName").value.trim();
-  if (newName) {
-    authors.push({
-      name: newName,
-      role: "author"
-    });
-  }
-
+function getAuthorsForSubmission() {
   const uniqueAuthors = [];
   const seen = new Set();
-  for (const author of authors) {
-    const key = `${author.id || author.name.trim().toLocaleLowerCase("fr")}\u0000${author.role.toLocaleLowerCase("fr")}`;
+  for (const author of selectedAuthors) {
+    const key = `${author.name.trim().toLocaleLowerCase("fr")}\u0000${author.role.toLocaleLowerCase("fr")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     uniqueAuthors.push({ ...author, position: uniqueAuthors.length + 1 });
@@ -593,6 +734,8 @@ function renderWorks() {
 
 function renderWorkEditor(mode, work = null) {
   if (accessLevel !== "edit") return;
+  selectedAuthorSuggestion = null;
+  closeAuthorSuggestions();
 
   const panel = $("workDetails");
   panel.classList.remove("hidden");
@@ -628,7 +771,6 @@ function renderWorkEditor(mode, work = null) {
     role: author.role || "author",
     position: author.position || index + 1
   }));
-  renderAuthorOptions();
   renderSelectedAuthors();
   selectedTags = (work?.tags || []).filter((tag) => tag.id);
   tagsEdited = false;
@@ -707,13 +849,16 @@ function applyAccessMode() {
   $("addWorkButton").classList.toggle("hidden", !isEditor);
 
   if (!isEditor) {
+    authorListRequestId += 1;
+    availableAuthors = [];
+    selectedAuthorSuggestion = null;
+    closeAuthorSuggestions();
     if (wasEditing) {
       const editingId = $("workId").value;
       if (editingId) openWorkDetails(editingId);
       else closeWorkDetails();
     }
     selectedAuthors = [];
-    availableAuthors = [];
     availableTags = [];
     renderSelectedAuthors();
   }
@@ -726,9 +871,12 @@ function logout() {
   accessPassword = "";
   accessLevel = "";
   modeSwitchTarget = "";
+  authorListRequestId += 1;
+  availableAuthors = [];
+  selectedAuthorSuggestion = null;
+  closeAuthorSuggestions();
   works = [];
   selectedWorkId = "";
-  availableAuthors = [];
   selectedAuthors = [];
   $("appContent").classList.add("hidden");
   $("loginPage").classList.remove("hidden");
@@ -796,13 +944,16 @@ $("loginForm").addEventListener("submit", async (event) => {
     applyAccessMode();
 
     if (accessLevel === "edit") {
-      try {
-        await loadAuthors();
-      } catch (error) {
-        showAuthorStatus(`Impossible de charger la liste des auteurs : ${error.message}`, true);
-        console.error(error);
-      }
+      loadAuthors().catch((error) => {
+        if (accessLevel !== "edit") return;
+        showAuthorStatus(
+          `Les suggestions d’auteurs ne sont pas disponibles : ${error.message}`,
+          true,
+        );
+        console.error("authors_list failed", error);
+      });
     }
+
     await loadWorks();
   } catch (error) {
     $("loginMessage").textContent = error.message === "Mot de passe incorrect"
@@ -887,11 +1038,7 @@ document.addEventListener("submit", async (event) => {
         if (!author.id || !author.name) {
           throw new Error("La fonction n’a pas renvoyé les auteurs associés.");
         }
-        if (!availableAuthors.some((item) => item.id === author.id)) {
-          availableAuthors.push({ id: author.id, name: author.name });
-        }
       }
-      renderAuthorOptions();
     } catch (error) {
       await loadWorks();
       $("editorMessage").textContent =
@@ -1032,29 +1179,18 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("click", async (event) => {
   const target = event.target;
-  if (target.closest("#addExistingAuthor")) {
-    if (accessLevel !== "edit") return;
-    const author = availableAuthors.find((item) => item.id === $("authorSelect").value);
-    if (!author) {
-      showAuthorStatus("Choisis un auteur existant dans la liste.", true);
-      return;
-    }
-    if (addSelectedAuthor({ id: author.id, name: author.name, role: "author" })) {
-      $("authorSelect").value = "";
-    }
+  if (!target.closest("#authorAutocomplete")) closeAuthorSuggestions();
+
+  const authorSuggestion = target.closest("[data-author-suggestion]");
+  if (authorSuggestion) {
+    const author = authorSuggestions.find((item) =>
+      item.id === authorSuggestion.dataset.authorSuggestion
+    );
+    if (author) selectAuthorSuggestion(author);
+    return;
   }
 
-  if (target.closest("#addNewAuthor")) {
-    if (accessLevel !== "edit") return;
-    const name = $("newAuthorName").value.trim();
-    if (!name) {
-      showAuthorStatus("Saisis le nom du nouvel auteur.", true);
-      return;
-    }
-    if (addSelectedAuthor({ name, role: "author" })) {
-      $("newAuthorName").value = "";
-    }
-  }
+  if (target.closest("#addAuthor")) await addAuthorFromInput();
 
   if (target.closest("#addWorkTag") && accessLevel === "edit") {
     const tag = availableTags.find((item) => item.id === $("tagSelect").value);
@@ -1159,6 +1295,49 @@ document.addEventListener("click", async (event) => {
     const form = $("workForm");
     if (form?.dataset.mode === "create") closeWorkDetails();
     else if (form) openWorkDetails($("workId").value);
+  }
+});
+
+document.addEventListener("input", (event) => {
+  if (event.target.id !== "authorName") return;
+  selectedAuthorSuggestion = null;
+  updateAuthorSuggestions(event.target.value);
+});
+
+document.addEventListener("keydown", async (event) => {
+  if (event.target.id !== "authorName") return;
+  if (event.key === "Escape") {
+    if (authorSuggestions.length) {
+      event.preventDefault();
+      closeAuthorSuggestions();
+    }
+    return;
+  }
+  if (event.key === "ArrowDown" && authorSuggestions.length) {
+    event.preventDefault();
+    setActiveAuthorSuggestion(activeAuthorSuggestionIndex + 1);
+    return;
+  }
+  if (event.key === "ArrowUp" && authorSuggestions.length) {
+    event.preventDefault();
+    setActiveAuthorSuggestion(
+      activeAuthorSuggestionIndex < 0
+        ? authorSuggestions.length - 1
+        : activeAuthorSuggestionIndex - 1,
+    );
+    return;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    if (authorSuggestions.length) {
+      selectAuthorSuggestion(
+        authorSuggestions[activeAuthorSuggestionIndex < 0
+          ? 0
+          : activeAuthorSuggestionIndex],
+      );
+      return;
+    }
+    await addAuthorFromInput();
   }
 });
 

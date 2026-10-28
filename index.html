@@ -114,15 +114,14 @@
 
       <section class="editor-section">
         <h3>Auteurs</h3>
-        <label for="authorSelect">Associer un auteur existant</label>
-        <div class="author-entry">
-          <select id="authorSelect"><option value="">Choisir un auteur…</option></select>
-          <button type="button" id="addExistingAuthor">Associer</button>
-        </div>
-        <label for="newAuthorName">Créer un auteur</label>
-        <div class="author-entry">
-          <input id="newAuthorName" maxlength="300" placeholder="Nom de l’auteur">
-          <button type="button" id="addNewAuthor">Ajouter</button>
+        <label for="authorName">Nom de l’auteur</label>
+        <div class="author-entry" id="authorAutocomplete">
+          <div class="author-autocomplete">
+            <input id="authorName" maxlength="300" placeholder="Nom de l’auteur" autocomplete="off"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="authorSuggestions">
+            <ul id="authorSuggestions" class="author-suggestions hidden" role="listbox"></ul>
+          </div>
+          <button type="button" id="addAuthor">Ajouter</button>
         </div>
         <div id="selectedAuthors" class="selected-authors" aria-live="polite"></div>
         <p id="authorStatus" class="field-status" role="status"></p>

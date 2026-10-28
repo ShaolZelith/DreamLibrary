@@ -14,6 +14,13 @@ const constraintsSnapshot = readFileSync(
   new URL("../schema_constraints.txt", import.meta.url),
   "utf8",
 );
+const authorResolutionMigration = readFileSync(
+  new URL(
+    "../supabase/migrations/20261028_resolve_authors_case_insensitively.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const frontend = readFileSync(new URL("../script.js", import.meta.url), "utf8");
 
@@ -37,6 +44,21 @@ function actionBlock(action) {
     }
   }
   assert.fail(`unterminated action ${action}`);
+}
+
+function functionBlock(functionName) {
+  const start = frontend.indexOf(`function ${functionName}(`);
+  assert.notEqual(start, -1, `missing function ${functionName}`);
+  const open = frontend.indexOf("{", start);
+  let depth = 0;
+  for (let index = open; index < frontend.length; index += 1) {
+    if (frontend[index] === "{") depth += 1;
+    if (frontend[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return frontend.slice(start, index + 1);
+    }
+  }
+  assert.fail(`unterminated function ${functionName}`);
 }
 
 test("works_list reads confirmed work, author, and tag-link columns", () => {
@@ -98,15 +120,60 @@ test("status writes preserve boolean true, false, and null", () => {
   assert.match(edgeFunction, /"is_read", "is_owned"/);
 });
 
-test("author associations use confirmed columns and unique conflict key", () => {
+test("author associations use the confirmed relationship and conflict key", () => {
   const setAuthors = actionBlock("works_authors_set");
   assert.match(setAuthors, /\.from\("authors"\)/);
-  assert.match(setAuthors, /\.upsert\(authorRows, \{ onConflict: "name" \}\)/);
+  assert.match(setAuthors, /\.rpc\("resolve_author"/);
   assert.match(setAuthors, /\.from\("work_authors"\)/);
   assert.match(setAuthors, /onConflict: "work_id,author_id,role"/);
+  assert.match(setAuthors, /\.from\("work_authors"\)\s*\.delete\(\)/);
+  assert.doesNotMatch(setAuthors, /\.from\("authors"\)\s*\.delete\(\)/);
+  assert.match(setAuthors, /authorNamesById\.get\(link\.author_id\) \|\| workAuthors\[index\]\.name/);
+  assert.match(setAuthors, /"Impossible d'enregistrer les auteurs"/);
+  assert.ok(
+    setAuthors.indexOf("for (const name of newAuthorNames)") <
+      setAuthors.indexOf("if (newLinks.length)"),
+    "all unpersisted author names must resolve before writing associations",
+  );
+  assert.ok(
+    setAuthors.indexOf('"Impossible d\'enregistrer les auteurs"') <
+      setAuthors.indexOf("if (newLinks.length)"),
+    "author resolution failures must return before writing associations",
+  );
   for (const column of ["work_id", "author_id", "role", "position"]) {
     assert.equal(hasColumn("work_authors", column), true);
   }
+});
+
+test("author resolution trims names, reuses case-insensitive matches, and serializes concurrent creates", () => {
+  const resolveAuthor = actionBlock("authors_resolve");
+  assert.match(resolveAuthor, /role !== "edit"/);
+  assert.match(resolveAuthor, /!body\.name\.trim\(\)/);
+  assert.match(resolveAuthor, /body\.name\.trim\(\)\.length > 300/);
+  assert.match(resolveAuthor, /\.rpc\("resolve_author", \{\s*p_name: body\.name\.trim\(\)/);
+  assert.match(resolveAuthor, /if \(error\) \{\s*return replyDatabaseError\(/);
+  assert.match(resolveAuthor, /Impossible de retrouver ou créer l’auteur/);
+  assert.match(resolveAuthor, /return reply\(\{ error: "La base n’a pas confirmé la résolution de l’auteur" \}, 500\)/);
+  assert.match(authorResolutionMigration, /cleaned_name := pg_catalog\.btrim\(p_name\)/);
+  assert.match(authorResolutionMigration, /hashtextextended\(pg_catalog\.lower\(cleaned_name\), 0\)/);
+  assert.match(authorResolutionMigration, /pg_advisory_xact_lock/);
+  assert.match(authorResolutionMigration, /lower\(pg_catalog\.btrim\(author\.name\)\)/);
+  assert.match(authorResolutionMigration, /ORDER BY author\.id\s+LIMIT 1/);
+  assert.match(authorResolutionMigration, /INSERT INTO public\.authors \(name\)\s+VALUES \(cleaned_name\)/);
+  assert.match(authorResolutionMigration, /LANGUAGE plpgsql\s+SET search_path = ''/);
+  assert.doesNotMatch(authorResolutionMigration, /SECURITY DEFINER/i);
+  assert.match(authorResolutionMigration, /GRANT EXECUTE ON FUNCTION public\.resolve_author\(text\) TO service_role/);
+  assert.match(authorResolutionMigration, /REVOKE ALL ON FUNCTION public\.resolve_author\(text\) FROM anon, authenticated/);
+  assert.match(authorResolutionMigration, /REVOKE ALL ON FUNCTION public\.resolve_author\(text\) FROM PUBLIC/);
+  assert.match(frontend, /const name = input\.value\.trim\(\)/);
+  assert.match(frontend, /name\.toLocaleLowerCase\("fr"\)/);
+  assert.match(frontend, /author\.name\.trim\(\)\.toLocaleLowerCase\("fr"\)/);
+  assert.match(frontend, /if \(!name\) \{\s*showAuthorStatus\("Saisis le nom de l’auteur\."/);
+});
+
+test("new and edited works persist authors through the same association action", () => {
+  assert.match(frontend, /id \? "works_update" : "works_create"/);
+  assert.match(frontend, /editRequest\(\s*"works_authors_set"[\s\S]*?authors: authorsToSave/);
 });
 
 test("tag updates insert and delete through the confirmed join table", () => {
@@ -135,6 +202,7 @@ test("tag creation validates edit access and reuses the unique category/name pai
 
 test("every write action requires edit role", () => {
   for (const action of [
+    "authors_resolve",
     "tags_create",
     "works_tags_set",
     "works_create",
@@ -163,11 +231,60 @@ test("relations have no current write action to exercise", () => {
 });
 
 test("author editor hides role fields and defaults created associations to author", () => {
-  assert.match(html, /id="authorSelect"[\s\S]*?id="addExistingAuthor"/);
-  assert.match(html, /id="newAuthorName"[\s\S]*?id="addNewAuthor"/);
-  assert.doesNotMatch(html, /id="(?:existingAuthorRole|newAuthorRole)"/);
-  assert.doesNotMatch(frontend, /\$\("(?:existingAuthorRole|newAuthorRole)"\)/);
+  assert.match(html, /label for="authorName">Nom de l’auteur/);
+  assert.match(html, /id="authorName" maxlength="300"/);
+  assert.match(html, /id="addAuthor">Ajouter/);
+  assert.match(html, /id="authorAutocomplete"/);
+  assert.match(html, /role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="authorSuggestions"/);
+  assert.match(html, /id="authorSuggestions"[^>]*role="listbox"/);
+  assert.doesNotMatch(html, /authorSelect|addExistingAuthor|newAuthorName|addNewAuthor/);
+  assert.doesNotMatch(frontend, /\$\("(?:authorSelect|newAuthorName)"\)/);
   assert.match(frontend, /role: "author"/);
+  assert.match(frontend, /data-remove-author/);
+});
+
+test("author suggestions are filtered locally from the limited authors list", () => {
+  const listAuthors = actionBlock("authors_list");
+  const loadAuthors = functionBlock("loadAuthors");
+  const updateSuggestions = functionBlock("updateAuthorSuggestions");
+  assert.match(listAuthors, /\.select\("id, name"\)/);
+  assert.match(loadAuthors, /editRequest\("authors_list"\)/);
+  assert.match(loadAuthors, /requestId !== authorListRequestId/);
+  assert.match(loadAuthors, /password !== accessPassword/);
+  assert.match(updateSuggestions, /query\.length >= 2/);
+  assert.match(updateSuggestions, /normalizedName\.includes\(query\)/);
+  assert.match(updateSuggestions, /selectedIds\.has\(author\.id\)/);
+  assert.match(updateSuggestions, /selectedNames\.has\(normalizedName\)/);
+  assert.match(updateSuggestions, /seenNames\.has\(normalizedName\)/);
+  assert.match(updateSuggestions, /\.slice\(0, 8\)/);
+  assert.doesNotMatch(updateSuggestions, /editRequest|fetch\(/);
+  assert.match(frontend, /loadAuthors\(\)\.catch/);
+});
+
+test("selecting a suggestion does not resolve or create an author", () => {
+  const selectSuggestion = functionBlock("selectAuthorSuggestion");
+  const addAuthor = functionBlock("addAuthorFromInput");
+  assert.match(selectSuggestion, /selectedAuthorSuggestion = author/);
+  assert.match(selectSuggestion, /\$\("authorName"\)\.value = author\.name/);
+  assert.match(addAuthor, /selectedAuthorSuggestion[\s\S]*?normalizeAuthorName\(selectedAuthorSuggestion\.name\)/);
+  assert.match(addAuthor, /if \(!author\) \{\s*const result = await editRequest\(\s*"authors_resolve"/);
+  assert.match(addAuthor, /if \(!availableAuthors\.some\(\(item\) => item\.id === author\.id\)\)/);
+  assert.match(frontend, /if \(!name\) \{\s*showAuthorStatus\("Saisis le nom de l’auteur\."/);
+});
+
+test("author autocomplete handles keyboard selection, escape, and outside clicks", () => {
+  const keydown = frontend.slice(
+    frontend.indexOf('document.addEventListener("keydown", async (event) => {'),
+    frontend.indexOf('["search", "workTypeFilter", "priorityFilter"]'),
+  );
+  assert.match(keydown, /event\.key === "ArrowDown"/);
+  assert.match(keydown, /event\.key === "ArrowUp"/);
+  assert.match(keydown, /event\.key === "Escape"/);
+  assert.match(keydown, /event\.key === "Enter"/);
+  assert.match(keydown, /event\.preventDefault\(\)/);
+  assert.match(keydown, /selectAuthorSuggestion\(/);
+  assert.match(frontend, /if \(!target\.closest\("#authorAutocomplete"\)\) closeAuthorSuggestions\(\)/);
+  assert.match(frontend, /if \(event\.target\.id !== "authorName"\) return;\s*selectedAuthorSuggestion = null;\s*updateAuthorSuggestions/);
 });
 
 test("tag editor offers exactly the four confirmed categories", () => {
