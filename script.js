@@ -14,6 +14,45 @@ const RICH_TEXT_COMMANDS = new Set([
   "insertUnorderedList", "insertOrderedList", "insertParagraph",
   "lineBreak", "undo", "redo"
 ]);
+const DETAIL_VALUE_LABELS = {
+  status: {
+    planned: "Prévue",
+    in_progress: "En cours",
+    completed: "Terminée",
+    abandoned: "Abandonnée"
+  },
+  ownership_status: {
+    owned: "Possédé",
+    borrowed: "Emprunté",
+    loaned: "Prêté",
+    wanted: "Souhaité",
+    digital: "Numérique"
+  },
+  note_type: {
+    quote: "Citation",
+    reflection: "Réflexion",
+    summary: "Résumé",
+    highlight: "Passage important"
+  },
+  relation_type: {
+    same_subject: "Même sujet",
+    complements: "Complète",
+    contradicts: "Contredit",
+    criticizes: "Critique",
+    alternative_view: "Point de vue alternatif"
+  },
+  direction: {
+    outgoing: "Cette œuvre est la source",
+    incoming: "Cette œuvre est la cible",
+    both: "Dans les deux sens"
+  },
+  category: {
+    genre: "Genre",
+    theme: "Thème",
+    place: "Lieu",
+    period: "Période"
+  }
+};
 
 const $ = (id) => document.getElementById(id);
 
@@ -199,6 +238,16 @@ function renderRichText(value) {
   return html ? `<div class="rich-text-content">${html}</div>` : "";
 }
 
+function formatDetailValue(field, value) {
+  const labels = DETAIL_VALUE_LABELS[field];
+  if (!labels) return String(value);
+  if (Object.prototype.hasOwnProperty.call(labels, value)) return labels[value];
+  const readable = String(value).replace(/[_-]+/g, " ").trim();
+  return readable
+    ? `${readable.charAt(0).toLocaleUpperCase("fr")}${readable.slice(1)}`
+    : "Valeur non renseignée";
+}
+
 function coverImageMarkup(work, className, loading = false) {
   const src = work.cover_url || DEFAULT_COVER_IMAGE;
   const defaultClass = work.cover_url ? "" : " is-default-cover";
@@ -272,12 +321,8 @@ function detailFields(record, excluded = []) {
     ) return [];
     if (typeof value === "object") return [];
 
-    const formattedValue = key === "direction"
-      ? ({
-        outgoing: "Cette œuvre est la source",
-        incoming: "Cette œuvre est la cible",
-        both: "Dans les deux sens"
-      }[value] || String(value))
+    const formattedValue = Object.prototype.hasOwnProperty.call(DETAIL_VALUE_LABELS, key)
+      ? formatDetailValue(key, value)
       : typeof value === "boolean"
       ? value ? "Oui" : "Non"
       : String(value);

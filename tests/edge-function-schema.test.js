@@ -205,11 +205,104 @@ test("bidirectional relations persist, reload, and display without a duplicate r
     {
       record: { direction: "both", is_bidirectional: true },
       escapeHTML: (value = "") => String(value),
-      isRichTextField: () => false
+      isRichTextField: () => false,
+      DETAIL_VALUE_LABELS: {
+        direction: { both: "Dans les deux sens" }
+      },
+      formatDetailValue: (field, value) => ({ both: "Dans les deux sens" }[value] || String(value))
     },
   );
   assert.match(detailsMarkup, /<dt>Direction<\/dt><dd>Dans les deux sens<\/dd>/);
   assert.doesNotMatch(detailsMarkup, /is_bidirectional/);
+});
+
+test("detail values translate known enums and preserve free text and unknown values", () => {
+  const labels = runInNewContext(
+    `${frontend.slice(
+      frontend.indexOf("const DETAIL_VALUE_LABELS"),
+      frontend.indexOf("\nconst $"),
+    )}; DETAIL_VALUE_LABELS`,
+  );
+  const formatValue = runInNewContext(
+    `${functionBlock("formatDetailValue")}; formatDetailValue`,
+    { DETAIL_VALUE_LABELS: labels },
+  );
+  const expected = {
+    status: {
+      planned: "Prévue",
+      in_progress: "En cours",
+      completed: "Terminée",
+      abandoned: "Abandonnée"
+    },
+    ownership_status: {
+      owned: "Possédé",
+      borrowed: "Emprunté",
+      loaned: "Prêté",
+      wanted: "Souhaité",
+      digital: "Numérique"
+    },
+    note_type: {
+      quote: "Citation",
+      reflection: "Réflexion",
+      summary: "Résumé",
+      highlight: "Passage important"
+    },
+    relation_type: {
+      same_subject: "Même sujet",
+      complements: "Complète",
+      contradicts: "Contredit",
+      criticizes: "Critique",
+      alternative_view: "Point de vue alternatif"
+    },
+    direction: {
+      outgoing: "Cette œuvre est la source",
+      incoming: "Cette œuvre est la cible",
+      both: "Dans les deux sens"
+    },
+    category: {
+      genre: "Genre",
+      theme: "Thème",
+      place: "Lieu",
+      period: "Période"
+    }
+  };
+  for (const [field, values] of Object.entries(expected)) {
+    for (const [stored, displayed] of Object.entries(values)) {
+      assert.equal(formatValue(field, stored), displayed, `${field}.${stored}`);
+    }
+  }
+  assert.equal(formatValue("status", "awaiting_review"), "Awaiting review");
+  assert.equal(formatValue("format", "Paperback"), "Paperback");
+  assert.equal(formatValue("condition", "Très bon état"), "Très bon état");
+  assert.equal(formatValue("title", "A Book_Title"), "A Book_Title");
+
+  const renderDetails = functionBlock("detailFields");
+  const formattedDetails = runInNewContext(
+    `${renderDetails}; detailFields(record)`,
+    {
+      record: {
+        status: "in_progress",
+        ownership_status: "borrowed",
+        note_type: "reflection",
+        relation_type: "alternative_view",
+        direction: "incoming",
+        title: "A Book_Title",
+        comment: "Texte libre original"
+      },
+      DETAIL_VALUE_LABELS: labels,
+      formatDetailValue: (field, value) => formatValue(field, value),
+      isRichTextField: () => false,
+      escapeHTML: (value = "") => String(value)
+    },
+  );
+  for (const value of [
+    "En cours", "Emprunté", "Réflexion", "Point de vue alternatif",
+    "Cette œuvre est la cible", "A Book_Title", "Texte libre original"
+  ]) {
+    assert.ok(formattedDetails.includes(value), value);
+  }
+  assert.match(frontend, /work\.work_type === workType/);
+  assert.match(frontend, /ownership === "all" \|\| work\.is_owned === \(ownership === "true"\)/);
 });
 
 test("detail cover remains in its layout position while the page scrolls", () => {
