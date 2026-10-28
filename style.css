@@ -78,6 +78,10 @@ label {
   font-size: 0.92rem;
 }
 
+#loginForm button {
+  margin-top: 8px;
+}
+
 .header {
   display: flex;
   justify-content: space-between;
