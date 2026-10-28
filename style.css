@@ -392,6 +392,11 @@ main {
   gap: 22px;
 }
 
+.book-grid > .work-details {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .book-card {
   min-width: 0;
   overflow: hidden;

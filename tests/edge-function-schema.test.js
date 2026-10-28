@@ -491,8 +491,10 @@ test("sorting is applied after current filters without reloading the library", (
     readingStatusFilter: { value: "all" },
     workSort: { value: "title-asc" },
     workCount: { textContent: "" },
+    workDetails: {},
     workGrid: {
       innerHTML: "",
+      after: () => {},
       querySelectorAll: () => []
     }
   };
@@ -509,6 +511,7 @@ test("sorting is applied after current filters without reloading the library", (
       $: (id) => controls[id],
       works: filteredWorks,
       selectedWorkId: "",
+      positionWorkDetailsInGrid: () => {},
       escapeHTML: (value) => String(value),
       displayName: (item) => item.name || item
     },
@@ -559,8 +562,10 @@ test("possession and reading filters combine with search and sorting", () => {
     readingStatusFilter: { value: "all" },
     workSort: { value: "title-asc" },
     workCount: { textContent: "" },
+    workDetails: {},
     workGrid: {
       innerHTML: "",
+      after: () => {},
       querySelectorAll: () => []
     }
   };
@@ -576,6 +581,7 @@ test("possession and reading filters combine with search and sorting", () => {
     $: (id) => controls[id],
     works: filteredWorks,
     selectedWorkId: "",
+    positionWorkDetailsInGrid: () => {},
     escapeHTML: (value) => String(value),
     displayName: (item) => item.name || item
   };
@@ -647,4 +653,151 @@ test("reset filters clears filters but preserves the selected sort", () => {
   assert.match(html, /id="resetFiltersButton"/);
   assert.match(frontend, /\$\("resetFiltersButton"\)\.addEventListener\("click", resetWorkFilters\)/);
   assert.match(frontend, /"ownershipFilter",\s*"readingStatusFilter",\s*"workSort"/);
+});
+
+test("details panel follows the selected card row across grid layouts", () => {
+  const placement = functionBlock("positionWorkDetailsInGrid");
+  assert.match(functionBlock("renderWorks"), /positionWorkDetailsInGrid\(\)/);
+  assert.match(frontend, /window\.addEventListener\("resize",[\s\S]*?positionWorkDetailsInGrid\(\)/);
+
+  class FakeElement {
+    constructor(name, offsetTop = 0, workSelect = "") {
+      this.name = name;
+      this.offsetTop = offsetTop;
+      this.dataset = workSelect ? { workSelect } : {};
+      this.children = [];
+      this.parentNode = null;
+      this.hidden = false;
+      this.classList = {
+        add: () => { this.hidden = true; },
+        remove: () => { this.hidden = false; }
+      };
+    }
+
+    get previousElementSibling() {
+      if (!this.parentNode) return null;
+      return this.parentNode.children[this.parentNode.children.indexOf(this) - 1] || null;
+    }
+
+    insertAfter(reference, node) {
+      const currentParent = node.parentNode;
+      if (currentParent) currentParent.children.splice(currentParent.children.indexOf(node), 1);
+      const index = this.children.indexOf(reference);
+      this.children.splice(index + 1, 0, node);
+      node.parentNode = this;
+    }
+
+    after(node) {
+      this.parentNode.insertAfter(this, node);
+    }
+
+    querySelectorAll(selector) {
+      assert.equal(selector, "[data-work-select]");
+      return this.children.filter((child) => child.dataset.workSelect);
+    }
+  }
+
+  const wrapper = new FakeElement("wrapper");
+  const grid = new FakeElement("grid");
+  const panel = new FakeElement("panel");
+  wrapper.children = [grid, panel];
+  grid.parentNode = wrapper;
+  panel.parentNode = wrapper;
+  const cards = Array.from({ length: 14 }, (_, index) => {
+    const card = new FakeElement(
+      `card-${index}`,
+      Math.floor(index / 6) * 100,
+      `book-${index}`,
+    );
+    card.parentNode = grid;
+    return card;
+  });
+  grid.children = cards;
+  let selectedWorkId = "book-0";
+  const position = runInNewContext(
+    `${functionBlock("findLastCardInRow")}\n${placement}; positionWorkDetailsInGrid`,
+    {
+    $: (id) => id === "workGrid" ? grid : panel,
+    get selectedWorkId() { return selectedWorkId; }
+    },
+  );
+  const gridOrder = () => grid.children.map((child) => child.name);
+
+  position();
+  assert.deepEqual(gridOrder().slice(0, 7), [
+    "card-0", "card-1", "card-2", "card-3", "card-4", "card-5", "panel"
+  ]);
+  selectedWorkId = "book-8";
+  position();
+  assert.deepEqual(gridOrder().slice(6, 13), [
+    "card-6", "card-7", "card-8", "card-9", "card-10", "card-11", "panel"
+  ]);
+  selectedWorkId = "book-13";
+  position();
+  assert.deepEqual(gridOrder().slice(-2), ["card-13", "panel"]);
+
+  cards.forEach((card, index) => {
+    card.offsetTop = Math.floor(index / 3) * 100;
+  });
+  selectedWorkId = "book-4";
+  position();
+  assert.deepEqual(gridOrder().slice(3, 7), [
+    "card-3", "card-4", "card-5", "panel"
+  ]);
+
+  selectedWorkId = "";
+  position();
+  assert.equal(panel.parentNode, wrapper);
+  assert.equal(panel.hidden, true);
+});
+
+test("delegated card events keep selecting books after rerenders and panel moves", async () => {
+  const calls = [];
+  const activeCards = new Set();
+  const grid = {
+    contains: (card) => activeCards.has(card)
+  };
+  const handlers = {
+    click: functionBlock("handleWorkCardClick"),
+    keydown: functionBlock("handleWorkCardKeydown")
+  };
+  assert.match(frontend, /\$\("workGrid"\)\.addEventListener\("click", handleWorkCardClick\)/);
+  assert.match(frontend, /\$\("workGrid"\)\.addEventListener\("keydown", handleWorkCardKeydown\)/);
+  assert.doesNotMatch(functionBlock("renderWorks"), /card\.addEventListener\("click"/);
+
+  const context = {
+    $: (id) => id === "workGrid" ? grid : null,
+    openWorkDetails: async (id) => {
+      calls.push(id);
+      activeCards.clear();
+      activeCards.add({ dataset: { workSelect: `after-${id}` } });
+    }
+  };
+  const click = runInNewContext(`${handlers.click}; handleWorkCardClick`, context);
+  const keyboard = runInNewContext(`${handlers.keydown}; handleWorkCardKeydown`, context);
+
+  for (const id of ["A", "B", "C", "after-C"]) {
+    const card = { dataset: { workSelect: id } };
+    activeCards.add(card);
+    await click({ target: { closest: () => card } });
+  }
+  assert.deepEqual(calls, ["A", "B", "C", "after-C"]);
+
+  const keyboardCard = { dataset: { workSelect: "keyboard" } };
+  activeCards.add(keyboardCard);
+  let prevented = false;
+  await keyboard({
+    target: { closest: () => keyboardCard },
+    key: "Enter",
+    preventDefault: () => { prevented = true; }
+  });
+  assert.equal(prevented, true);
+  assert.equal(calls.at(-1), "keyboard");
+
+  let staleTargetOpened = false;
+  await click({
+    target: { closest: () => ({ dataset: { workSelect: "stale" } }) }
+  });
+  staleTargetOpened = calls.includes("stale");
+  assert.equal(staleTargetOpened, false);
 });

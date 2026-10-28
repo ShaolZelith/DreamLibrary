@@ -885,6 +885,7 @@ function renderWorkDetails(details) {
     ${actions}
   `;
   panel.classList.remove("hidden");
+  positionWorkDetailsInGrid();
   panel.querySelector("[data-close-details]").addEventListener("click", closeWorkDetails);
   panel.querySelector("[data-detail-edit]")?.addEventListener("click", () => {
     if (accessLevel !== "edit") return;
@@ -935,6 +936,50 @@ function closeWorkDetails() {
   $("workDetails").classList.add("hidden");
   $("workDetails").replaceChildren();
   renderWorks();
+}
+
+function findLastCardInRow(cards, selectedCard) {
+  const selectedTop = selectedCard.offsetTop;
+  let lastCard = selectedCard;
+  const selectedIndex = cards.indexOf(selectedCard);
+  for (let index = selectedIndex + 1; index < cards.length; index += 1) {
+    if (cards[index].offsetTop !== selectedTop) break;
+    lastCard = cards[index];
+  }
+  return lastCard;
+}
+
+function positionWorkDetailsInGrid() {
+  const grid = $("workGrid");
+  const panel = $("workDetails");
+  const cards = [...grid.querySelectorAll("[data-work-select]")];
+  const selectedCard = cards.find((card) => card.dataset.workSelect === selectedWorkId);
+
+  if (!selectedWorkId || !selectedCard) {
+    panel.classList.add("hidden");
+    grid.after(panel);
+    return;
+  }
+
+  const lastCardInRow = findLastCardInRow(cards, selectedCard);
+  if (panel.previousElementSibling !== lastCardInRow) {
+    lastCardInRow.after(panel);
+  }
+  panel.classList.remove("hidden");
+}
+
+function handleWorkCardClick(event) {
+  const card = event.target.closest("[data-work-select]");
+  if (!card || !$("workGrid").contains(card)) return;
+  return openWorkDetails(card.dataset.workSelect);
+}
+
+function handleWorkCardKeydown(event) {
+  const card = event.target.closest("[data-work-select]");
+  if (!card || !$("workGrid").contains(card)) return;
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  return openWorkDetails(card.dataset.workSelect);
 }
 
 function sortWorks(items, criterion = "title-asc") {
@@ -1072,8 +1117,11 @@ function renderWorks() {
     `${filtered.length} œuvre${filtered.length > 1 ? "s" : ""}`;
 
   const grid = $("workGrid");
+  const detailsPanel = $("workDetails");
+  grid.after(detailsPanel);
   if (!filtered.length) {
     grid.innerHTML = '<p class="empty-state">Aucun livre ne correspond aux filtres et à la recherche.</p>';
+    positionWorkDetailsInGrid();
     return;
   }
 
@@ -1111,14 +1159,7 @@ function renderWorks() {
     `;
   }).join("");
 
-  grid.querySelectorAll("[data-work-select]").forEach((card) => {
-    card.addEventListener("click", () => openWorkDetails(card.dataset.workSelect));
-    card.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      openWorkDetails(card.dataset.workSelect);
-    });
-  });
+  positionWorkDetailsInGrid();
 
   grid.querySelectorAll("img.book-cover").forEach((img) => {
     img.addEventListener("error", () => {
@@ -1634,6 +1675,8 @@ async function deleteWork(id) {
 
 $("logoutButton").addEventListener("click", logout);
 $("resetFiltersButton").addEventListener("click", resetWorkFilters);
+$("workGrid").addEventListener("click", handleWorkCardClick);
+$("workGrid").addEventListener("keydown", handleWorkCardKeydown);
 
 document.addEventListener("change", (event) => {
   for (const [positiveId, negativeId] of [
@@ -1856,6 +1899,15 @@ document.addEventListener("keydown", async (event) => {
     }
     await addAuthorFromInput();
   }
+});
+
+let detailsPositionFrame = 0;
+window.addEventListener("resize", () => {
+  if (detailsPositionFrame) cancelAnimationFrame(detailsPositionFrame);
+  detailsPositionFrame = requestAnimationFrame(() => {
+    detailsPositionFrame = 0;
+    positionWorkDetailsInGrid();
+  });
 });
 
 [
