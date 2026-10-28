@@ -6,6 +6,8 @@ Les faits décrits comme confirmés ci-dessous proviennent des résultats d’in
 
 Cette documentation décrit les objets retournés par l’inspection de `public`; elle ne permet pas de conclure sur les autres schémas. Les définitions de colonnes et de contraintes sont des résultats de catalogue, pas un script de migration `CREATE TABLE`.
 
+La migration [`20261028163208_add_bidirectional_work_relations.sql`](./supabase/migrations/20261028163208_add_bidirectional_work_relations.sql) ajoute `work_relations.is_bidirectional` avec la valeur `false` par défaut, préservant ainsi le sens actuel des relations existantes. Les snapshots ci-dessus reflètent l’inspection antérieure à cette migration; ils ne sont pas une preuve de son application à une base.
+
 ## État des tables vérifiées
 
 Les 11 tables ci-dessous sont confirmées comme `BASE TABLE` dans `public`.
@@ -274,7 +276,7 @@ Les relations suivantes sont établies par les clés étrangères confirmées, e
 - **Sessions de lecture** : `reading_sessions.work_id` référence l’œuvre et cascade lors de sa suppression. `reading_sessions.copy_id` est une référence nullable à un exemplaire; supprimer l’exemplaire met `copy_id` à `NULL`.
 - **Notes** : `notes.work_id` référence l’œuvre et cascade lors de sa suppression. `notes.reading_session_id` est nullable et mis à `NULL` lors de la suppression de la session référencée.
 - **Tags** : `work_tags` relie les œuvres aux tags. Les deux FKs cascade lors de la suppression de l’œuvre ou du tag.
-- **Relations entre œuvres** : `work_relations.source_work_id` et `target_work_id` référencent chacun `works.id`; la suppression de l’une ou l’autre œuvre cascade sur la relation. La contrainte interdit l’auto-relation et l’unicité empêche un doublon pour le même couple orienté et le même type.
+- **Relations entre œuvres** : `work_relations.source_work_id` et `target_work_id` référencent chacun `works.id`; la suppression de l’une ou l’autre œuvre cascade sur la relation. La contrainte interdit l’auto-relation et l’unicité empêche un doublon pour le même couple orienté et le même type. La migration ajoute `is_bidirectional` pour identifier une relation réciproque dans une seule ligne; les lignes préexistantes conservent une valeur `false`.
 
 Les cardinalités exactes (par exemple un maximum d’éditions par œuvre) ne sont pas imposées par les FKs seules, sauf unicités explicitement listées dans les contraintes.
 
@@ -289,7 +291,7 @@ La comparaison ci-dessous sépare le schéma confirmé des requêtes constatées
 - `works_list`, `works_create` et `works_update` utilisent les champs de `works` — dont `is_read` et `is_owned` — qui sont confirmés dans le résultat fourni. L’action de mise à jour des auteurs utilise la table de liaison `work_authors`.
 - `works_detail` lit les éditions via `editions.work_id`, puis les exemplaires via `copies.edition_id`; il résout les emplacements via `copies.location_id` et `locations.id`. Les auteurs sont chargés via `work_authors`/`authors`, les tags via `work_tags`/`tags`, et les sessions et notes via leurs colonnes `work_id`. Ces chemins correspondent aux colonnes et FK confirmées.
 - `works_list` et `works_detail` utilisent maintenant uniquement `work_tags.work_id`/`tag_id` puis `tags.id`; aucune lecture de `tags.work_id` ne subsiste. De même, les copies ne sont plus cherchées par `copies.work_id`.
-- Les relations sont lues dans `work_relations` par `source_work_id` et `target_work_id`; le titre de l’autre œuvre est résolu à partir de ces deux colonnes. Les anciens chemins `work_relations.work_id` et `related_work_id` ont été retirés.
+- Les relations sont lues dans `work_relations` par `source_work_id` et `target_work_id`; le titre de l’autre œuvre est résolu à partir de ces deux colonnes. `is_bidirectional` permet de recharger et d’afficher une direction réciproque sans créer une seconde ligne. Les anciens chemins `work_relations.work_id` et `related_work_id` ont été retirés.
 - Les tentatives de lecture `reading_notes`, `citations` et `important_passages` ont été retirées de l’action `works_detail`, puisqu’elles ne sont pas nécessaires à la lecture de `notes` dans le schéma confirmé. Cette observation vaut uniquement pour les résultats `public` communiqués.
 - Les erreurs de requêtes associées ne sont plus converties en listes vides par un helper optionnel; elles sont renvoyées avec le contexte de l’action. Aucune action CRUD de création/suppression de `work_relations` n’existe dans cette Edge Function.
 - Les actions `works_create`, `works_update`, `works_tags_set` et `works_authors_set` modifient les œuvres et leurs associations. Aucune action d’écriture des éditions, copies, emplacements, sessions, notes ou relations n’a été relevée dans cette Edge Function.

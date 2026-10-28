@@ -135,6 +135,7 @@ interface RelatedInput {
     source_work_id: string;
     target_work_id: string;
     relation_type: string;
+    is_bidirectional: boolean;
     comment: string | null;
   }[];
 }
@@ -291,6 +292,7 @@ function parseRelatedInput(value: unknown, workId: string): RelatedInput | null 
       !isUuid(raw.target_work_id) ||
       raw.source_work_id === raw.target_work_id ||
       (raw.source_work_id !== workId && raw.target_work_id !== workId) ||
+      typeof raw.is_bidirectional !== "boolean" ||
       !["same_subject", "complements", "contradicts", "criticizes", "alternative_view"]
         .includes(String(raw.relation_type))
     ) return null;
@@ -303,6 +305,7 @@ function parseRelatedInput(value: unknown, workId: string): RelatedInput | null 
       source_work_id: raw.source_work_id,
       target_work_id: raw.target_work_id,
       relation_type: raw.relation_type as string,
+      is_bidirectional: raw.is_bidirectional,
       comment,
     });
   }
@@ -681,7 +684,11 @@ Deno.serve(async (req) => {
         return {
           ...relation,
           related_work_id: relatedId,
-          direction: relation.source_work_id === id ? "outgoing" : "incoming",
+          direction: relation.is_bidirectional
+            ? "both"
+            : relation.source_work_id === id
+            ? "outgoing"
+            : "incoming",
           related_work_title: relatedTitles.get(relatedId),
         };
       });
@@ -1146,6 +1153,7 @@ Deno.serve(async (req) => {
           source_work_id: relation.source_work_id,
           target_work_id: relation.target_work_id,
           relation_type: relation.relation_type,
+          is_bidirectional: relation.is_bidirectional,
           comment: relation.comment,
         };
         const result = exists

@@ -94,7 +94,7 @@ function detailFields(record, excluded = []) {
   const hiddenFields = new Set([
     "id", "work_id", "edition_id", "copy_id", "tag_id", "author_id",
     "location_id", "reading_session_id", "source_work_id", "target_work_id",
-    "related_work_id", "created_at", "updated_at", ...excluded
+    "related_work_id", "is_bidirectional", "created_at", "updated_at", ...excluded
   ]);
   const labels = {
     isbn: "ISBN",
@@ -123,6 +123,7 @@ function detailFields(record, excluded = []) {
     summary: "Résumé",
     passage: "Passage important",
     relation_type: "Type de relation",
+    direction: "Direction",
     related_work_title: "Œuvre liée",
     name: "Nom",
     title: "Titre",
@@ -138,7 +139,13 @@ function detailFields(record, excluded = []) {
     ) return [];
     if (typeof value === "object") return [];
 
-    const formattedValue = typeof value === "boolean"
+    const formattedValue = key === "direction"
+      ? ({
+        outgoing: "Cette œuvre est la source",
+        incoming: "Cette œuvre est la cible",
+        both: "Dans les deux sens"
+      }[value] || String(value))
+      : typeof value === "boolean"
       ? value ? "Oui" : "Non"
       : String(value);
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(formattedValue)) {
@@ -561,7 +568,8 @@ function relatedItemMarkup(type, item, index) {
       ${editorField("Œuvre liée *", "related_work_id", item.related_work_id, "select", workOptions, "required")}
       ${editorField("Direction *", "direction", item.direction, "select", [
         { value: "outgoing", label: "Cette œuvre est la source" },
-        { value: "incoming", label: "Cette œuvre est la cible" }
+        { value: "incoming", label: "Cette œuvre est la cible" },
+        { value: "both", label: "Dans les deux sens" }
       ], "required")}
       ${editorField("Type *", "relation_type", item.relation_type, "select", [
         { value: "same_subject", label: "Même sujet" }, { value: "complements", label: "Complète" },
@@ -599,7 +607,9 @@ function relatedValuesMatch(details, expected) {
     copies: ["edition_id", "ownership_status", "location_id", "condition", "acquired_at", "notes"],
     reading_sessions: ["copy_id", "started_at", "finished_at", "status", "rating", "review"],
     notes: ["reading_session_id", "note_type", "content", "page", "chapter"],
-    relations: ["source_work_id", "target_work_id", "relation_type", "comment"]
+    relations: [
+      "source_work_id", "target_work_id", "relation_type", "is_bidirectional", "comment"
+    ]
   };
   return Object.entries(fields).every(([collection, properties]) => {
     const actualRecords = details[collection];
@@ -647,8 +657,10 @@ function setRelatedEditorData(details = {}) {
         (relation.source_work_id === details.work?.id
           ? relation.target_work_id
           : relation.source_work_id),
-      direction: relation.direction ||
-        (relation.source_work_id === details.work?.id ? "outgoing" : "incoming")
+      direction: relation.is_bidirectional
+        ? "both"
+        : relation.direction ||
+          (relation.source_work_id === details.work?.id ? "outgoing" : "incoming")
     }))
   };
   for (const copy of relatedEditor.copies) {
@@ -1490,6 +1502,7 @@ document.addEventListener("submit", async (event) => {
       target_work_id: relation.direction === "incoming"
         ? savedId
         : relation.related_work_id,
+      is_bidirectional: relation.direction === "both",
       relation_type: relation.relation_type,
       comment: relation.comment
     }));

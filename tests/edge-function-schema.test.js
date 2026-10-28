@@ -22,6 +22,13 @@ const authorResolutionMigration = readFileSync(
   ),
   "utf8",
 );
+const bidirectionalRelationsMigration = readFileSync(
+  new URL(
+    "../supabase/migrations/20261028163208_add_bidirectional_work_relations.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const frontend = readFileSync(new URL("../script.js", import.meta.url), "utf8");
 
@@ -50,7 +57,9 @@ function actionBlock(action) {
 function functionBlock(functionName) {
   const start = frontend.indexOf(`function ${functionName}(`);
   assert.notEqual(start, -1, `missing function ${functionName}`);
-  const open = frontend.indexOf("{", start);
+  const signatureEnd = frontend.indexOf(") {", start);
+  assert.notEqual(signatureEnd, -1, `missing body for function ${functionName}`);
+  const open = signatureEnd + 2;
   let depth = 0;
   for (let index = open; index < frontend.length; index += 1) {
     if (frontend[index] === "{") depth += 1;
@@ -122,6 +131,78 @@ test("works_detail reads confirmed relations in both directions", () => {
   assert.doesNotMatch(detail, /\.from\("work_relations"\)\.select\("related_work_id"\)/);
   assert.match(constraintsSnapshot, /CHECK \(source_work_id <> target_work_id\)/);
   assert.match(constraintsSnapshot, /UNIQUE \(source_work_id, target_work_id, relation_type\)/);
+});
+
+test("bidirectional relations persist, reload, and display without a duplicate row", () => {
+  assert.match(
+    bidirectionalRelationsMigration,
+    /ADD COLUMN IF NOT EXISTS is_bidirectional boolean NOT NULL DEFAULT false/i,
+  );
+  assert.match(frontend, /value: "both", label: "Dans les deux sens"/);
+  assert.match(frontend, /is_bidirectional: relation\.direction === "both"/);
+  assert.match(frontend, /relations: \[\s*"source_work_id", "target_work_id", "relation_type", "is_bidirectional", "comment"\s*\]/);
+
+  const details = actionBlock("works_detail");
+  assert.match(details, /direction: relation\.is_bidirectional\s*\?\s*"both"/);
+  const parser = edgeFunctionBlock("parseRelatedInput");
+  assert.match(parser, /typeof raw\.is_bidirectional !== "boolean"/);
+  assert.match(parser, /is_bidirectional: raw\.is_bidirectional/);
+  assert.match(actionBlock("works_related_set"), /is_bidirectional: relation\.is_bidirectional/);
+
+  const markup = runInNewContext(
+    `${functionBlock("relatedItemMarkup")}; relatedItemMarkup`,
+    {
+      escapeHTML: (value = "") => String(value),
+      $: () => ({ value: "current-work" }),
+      works: [{ id: "related-work", title: "Œuvre liée" }],
+      relatedEditor: { reading_sessions: [], editions: [], copies: [] },
+      availableLocations: [],
+      editorField: (label, field, value, type, options = []) => {
+        const choices = options.map((option) =>
+          `<option value="${option.value}" ${option.value === value ? "selected" : ""}>${option.label}</option>`
+        ).join("");
+        return `${label}<select data-related-field="${field}">${choices}</select>`;
+      }
+    },
+  );
+  const selectedDirection = markup("relations", {
+    id: "relation-id",
+    related_work_id: "related-work",
+    direction: "both",
+    relation_type: "same_subject",
+    comment: ""
+  }, 0);
+  assert.match(selectedDirection, /value="both" selected>Dans les deux sens/);
+
+  const reloadedEditor = runInNewContext(
+    `${functionBlock("setRelatedEditorData")}; setRelatedEditorData(details); relatedEditor`,
+    {
+      details: {
+        work: { id: "current-work" },
+        relations: [{
+          id: "relation-id",
+          source_work_id: "current-work",
+          target_work_id: "related-work",
+          is_bidirectional: true
+        }]
+      },
+      relatedEditor: {},
+      availableLocations: [],
+      renderRelatedEditors: () => {}
+    },
+  );
+  assert.equal(reloadedEditor.relations[0].direction, "both");
+  assert.equal(reloadedEditor.relations[0].related_work_id, "related-work");
+
+  const detailsMarkup = runInNewContext(
+    `${functionBlock("detailFields")}; detailFields(record)`,
+    {
+      record: { direction: "both", is_bidirectional: true },
+      escapeHTML: (value = "") => String(value)
+    },
+  );
+  assert.match(detailsMarkup, /<dt>Direction<\/dt><dd>Dans les deux sens<\/dd>/);
+  assert.doesNotMatch(detailsMarkup, /is_bidirectional/);
 });
 
 test("status writes preserve boolean true, false, and null", () => {
