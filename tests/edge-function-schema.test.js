@@ -31,6 +31,7 @@ const bidirectionalRelationsMigration = readFileSync(
 );
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const frontend = readFileSync(new URL("../script.js", import.meta.url), "utf8");
+const stylesheet = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
 function hasColumn(table, column) {
   return columnsSnapshot.split(/\r?\n/).some((line) => {
@@ -203,6 +204,13 @@ test("bidirectional relations persist, reload, and display without a duplicate r
   );
   assert.match(detailsMarkup, /<dt>Direction<\/dt><dd>Dans les deux sens<\/dd>/);
   assert.doesNotMatch(detailsMarkup, /is_bidirectional/);
+});
+
+test("detail cover remains in its layout position while the page scrolls", () => {
+  const coverRule = stylesheet.match(/\.detail-cover-wrap\s*\{([^}]*)\}/)?.[1];
+  assert.ok(coverRule, "detail cover wrapper has a CSS rule");
+  assert.match(coverRule, /position:\s*static/);
+  assert.doesNotMatch(coverRule, /position:\s*(?:sticky|fixed|absolute)/);
 });
 
 test("status writes preserve boolean true, false, and null", () => {
