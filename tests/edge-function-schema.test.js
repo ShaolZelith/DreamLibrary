@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 const edgeFunction = readFileSync(
   new URL("../supabase/functions/dream-library-edit/index.ts", import.meta.url),
@@ -399,4 +400,123 @@ test("tag editor offers exactly the four confirmed categories", () => {
   assert.match(tagEditor, /value="place">Lieu/);
   assert.match(tagEditor, /value="period">Période/);
   assert.doesNotMatch(tagEditor, /value="(?:author|topic|location)"/);
+});
+
+test("work list loads existing publication years and latest personal ratings", () => {
+  const list = actionBlock("works_list");
+  assert.match(list, /\.from\("editions"\)\.select\("work_id, publication_year"\)/);
+  assert.match(list, /\.from\("reading_sessions"\)\s*\.select\("id, work_id, rating, created_at"\)/);
+  assert.match(list, /\.order\("created_at", \{ ascending: false \}\)/);
+  assert.match(list, /publication_year: publicationYearByWork\.get\(work\.id\) \?\? null/);
+  assert.match(list, /personal_rating: personalRatingByWork\.get\(work\.id\) \?\? null/);
+  assert.match(frontend, /created_at: work\.created_at \|\| null/);
+  assert.match(frontend, /publication_year: Number\.isInteger\(work\.publication_year\)/);
+  assert.match(frontend, /personal_rating: typeof work\.personal_rating === "number"/);
+});
+
+test("work sorting supports all criteria, missing values, and stable comparisons", () => {
+  const sortWorks = runInNewContext(`${functionBlock("sortWorks")}; sortWorks`);
+  const ids = (items, criterion) =>
+    Array.from(sortWorks(items, criterion), (work) => work.id);
+  const items = [
+    { id: "b", title: "bêta", authors: [{ name: "Zoé", position: 1 }] },
+    { id: "a1", title: "Alpha", authors: [{ name: "Émile", position: 1 }] },
+    { id: "a2", title: "alpha", authors: [{ name: "Alice", position: 1 }] },
+    { id: "missing", title: "Sans auteur", authors: [] }
+  ];
+
+  assert.deepEqual(ids(items, "title-asc"), ["a1", "a2", "b", "missing"]);
+  assert.deepEqual(ids(items, "title-desc"), ["missing", "b", "a1", "a2"]);
+  assert.deepEqual(ids([
+    { id: "accent", title: "Éclair" },
+    { id: "plain", title: "eclair" }
+  ], "title-asc"), ["plain", "accent"]);
+  assert.deepEqual(ids(items, "author-asc"), ["a2", "a1", "b", "missing"]);
+  assert.deepEqual(ids(items, "author-desc"), ["b", "a1", "a2", "missing"]);
+  assert.deepEqual(items.map((work) => work.id), ["b", "a1", "a2", "missing"]);
+
+  const multipleAuthors = [
+    { id: "second-first", title: "x", authors: [
+      { name: "Zoé", position: 2 },
+      { name: "Alice", position: 1 }
+    ] },
+    { id: "primary-first", title: "y", authors: [
+      { name: "Bruno", position: 1 },
+      { name: "Yves", position: 2 }
+    ] },
+    { id: "no-author", title: "z", authors: [] }
+  ];
+  assert.deepEqual(ids(multipleAuthors, "author-asc"), [
+    "second-first", "primary-first", "no-author"
+  ]);
+
+  const dates = [
+    { id: "later", title: "Later", created_at: "2024-12-31T23:30:00Z" },
+    { id: "earlier", title: "Earlier", created_at: "2025-01-01T00:00:00+02:00" },
+    { id: "missing", title: "Missing", created_at: null }
+  ];
+  assert.deepEqual(ids(dates, "added-asc"), ["earlier", "later", "missing"]);
+  assert.deepEqual(ids(dates, "added-desc"), ["later", "earlier", "missing"]);
+
+  const rated = [
+    { id: "high", title: "High", publication_year: 2020, personal_rating: 5 },
+    { id: "low", title: "Low", publication_year: 1900, personal_rating: 1.5 },
+    { id: "unrated", title: "Unrated", publication_year: null, personal_rating: null }
+  ];
+  assert.deepEqual(ids(rated, "publication-asc"), ["low", "high", "unrated"]);
+  assert.deepEqual(ids(rated, "publication-desc"), ["high", "low", "unrated"]);
+  assert.deepEqual(ids(rated, "rating-desc"), ["high", "low", "unrated"]);
+  assert.deepEqual(ids(rated, "rating-asc"), ["low", "high", "unrated"]);
+  assert.deepEqual(ids([
+    { id: "b", title: "B", tags: [{ name: "Zèbre" }, { name: "Été" }] },
+    { id: "a", title: "A", tags: [{ name: "alpha" }] },
+    { id: "none", title: "None", tags: [] }
+  ], "tag-asc"), ["a", "b", "none"]);
+});
+
+test("sorting is applied after current filters without reloading the library", () => {
+  const render = functionBlock("renderWorks");
+  assert.match(render, /sortWorks\(works\.filter\(/);
+  assert.match(render, /\$\("workSort"\)\.value/);
+  const sortEvents = frontend.slice(
+    frontend.indexOf('["search", "workTypeFilter", "priorityFilter", "workSort"]'),
+  );
+  assert.match(sortEvents, /\$\(id\)\.addEventListener\("input", renderWorks\)/);
+  assert.match(sortEvents, /\$\(id\)\.addEventListener\("change", renderWorks\)/);
+  assert.doesNotMatch(sortEvents, /loadWorks\(/);
+  const controls = {
+    search: { value: "rose" },
+    workTypeFilter: { value: "Roman" },
+    priorityFilter: { value: "true" },
+    workSort: { value: "title-asc" },
+    workCount: { textContent: "" },
+    workGrid: {
+      innerHTML: "",
+      querySelectorAll: () => []
+    }
+  };
+  const filteredWorks = [
+    { id: "z", title: "Rose Zèbre", work_type: "Roman", is_priority: true, authors: [], tags: [] },
+    { id: "a", title: "Rose Alpha", work_type: "Roman", is_priority: true, authors: [], tags: [] },
+    { id: "type", title: "Rose Beta", work_type: "Essai", is_priority: true, authors: [], tags: [] },
+    { id: "priority", title: "Rose Gamma", work_type: "Roman", is_priority: false, authors: [], tags: [] },
+    { id: "query", title: "Autre œuvre", work_type: "Roman", is_priority: true, authors: [], tags: [] }
+  ];
+  const renderFiltered = runInNewContext(
+    `${functionBlock("sortWorks")}\n${functionBlock("renderWorks")}; renderWorks`,
+    {
+      $: (id) => controls[id],
+      works: filteredWorks,
+      selectedWorkId: "",
+      escapeHTML: (value) => String(value),
+      displayName: (item) => item.name || item
+    },
+  );
+  renderFiltered();
+  assert.deepEqual(
+    Array.from(controls.workGrid.innerHTML.matchAll(/data-work-select="([^"]+)"/g), (match) => match[1]),
+    ["a", "z"],
+  );
+  const sortOptions = html.slice(html.indexOf('id="workSort"'), html.indexOf("</select>", html.indexOf('id="workSort"')));
+  assert.equal((sortOptions.match(/<option\b/g) || []).length, 11);
 });

@@ -417,11 +417,61 @@ Deno.serve(async (req) => {
       const workIds = works.map((work) => work.id);
       if (!workIds.length) return reply({ works: [] });
 
+      const [{ data: editions, error: editionsError }, { data: readingSessions, error: sessionsError }] =
+        await Promise.all([
+          supabase.from("editions").select("work_id, publication_year").in("work_id", workIds),
+          supabase.from("reading_sessions")
+            .select("id, work_id, rating, created_at")
+            .in("work_id", workIds)
+            .not("rating", "is", null)
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: true }),
+        ]);
+
+      if (editionsError) {
+        return replyDatabaseError(
+          "works_list",
+          "Impossible de charger les années de publication",
+          editionsError,
+        );
+      }
+      if (sessionsError) {
+        return replyDatabaseError(
+          "works_list",
+          "Impossible de charger les notes des œuvres",
+          sessionsError,
+        );
+      }
+
+      const publicationYearByWork = new Map<string, number>();
+      for (const edition of editions) {
+        const year = edition.publication_year;
+        if (
+          typeof year === "number" &&
+          Number.isInteger(year) &&
+          (!publicationYearByWork.has(edition.work_id) ||
+            year < publicationYearByWork.get(edition.work_id)!)
+        ) {
+          publicationYearByWork.set(edition.work_id, year);
+        }
+      }
+
+      const personalRatingByWork = new Map<string, number>();
+      for (const session of readingSessions) {
+        if (
+          typeof session.rating === "number" &&
+          !personalRatingByWork.has(session.work_id)
+        ) {
+          personalRatingByWork.set(session.work_id, session.rating);
+        }
+      }
+
       const { data: links, error: linksError } = await supabase
         .from("work_authors")
         .select("work_id, author_id, role, position")
         .in("work_id", workIds)
-        .order("position", { ascending: true });
+        .order("position", { ascending: true })
+        .order("author_id", { ascending: true });
 
       if (linksError) {
         return replyDatabaseError(
@@ -500,6 +550,8 @@ Deno.serve(async (req) => {
       return reply({
         works: works.map((work) => ({
           ...work,
+          publication_year: publicationYearByWork.get(work.id) ?? null,
+          personal_rating: personalRatingByWork.get(work.id) ?? null,
           authors: authorsByWork.get(work.id) || [],
           tags: tagsByWork.get(work.id) || [],
         })),

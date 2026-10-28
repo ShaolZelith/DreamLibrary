@@ -66,6 +66,13 @@ function normalizeWork(work) {
     is_priority: Boolean(work.is_priority),
     is_read: typeof work.is_read === "boolean" ? work.is_read : null,
     is_owned: typeof work.is_owned === "boolean" ? work.is_owned : null,
+    created_at: work.created_at || null,
+    publication_year: Number.isInteger(work.publication_year)
+      ? work.publication_year
+      : null,
+    personal_rating: typeof work.personal_rating === "number"
+      ? work.personal_rating
+      : null,
     authors: Array.isArray(work.authors) ? work.authors : [],
     tags: Array.isArray(work.tags) ? work.tags : []
   };
@@ -930,12 +937,119 @@ function closeWorkDetails() {
   renderWorks();
 }
 
+function sortWorks(items, criterion = "title-asc") {
+  const collator = new Intl.Collator("fr", {
+    sensitivity: "accent",
+    numeric: true
+  });
+  const firstAuthorName = (work) => {
+    const authors = (work.authors || []).map((item, index) => {
+      const author = item || {};
+      return {
+        author,
+        index,
+        position: Number.isFinite(author.position) ? author.position : index + 1
+      };
+    });
+    authors.sort((left, right) =>
+      left.position - right.position ||
+      collator.compare(left.author.name || "", right.author.name || "") ||
+      String(left.author.id || "").localeCompare(String(right.author.id || "")) ||
+      left.index - right.index
+    );
+    return authors.length ? authors[0].author.name || null : null;
+  };
+  const sorters = {
+    "title-asc": { type: "text", direction: 1, value: (work) => work.title },
+    "title-desc": { type: "text", direction: -1, value: (work) => work.title },
+    "author-asc": {
+      type: "text",
+      direction: 1,
+      value: firstAuthorName
+    },
+    "author-desc": {
+      type: "text",
+      direction: -1,
+      value: firstAuthorName
+    },
+    "added-asc": {
+      type: "date",
+      direction: 1,
+      value: (work) => work.created_at
+    },
+    "added-desc": {
+      type: "date",
+      direction: -1,
+      value: (work) => work.created_at
+    },
+    "publication-asc": {
+      type: "number",
+      direction: 1,
+      value: (work) => work.publication_year
+    },
+    "publication-desc": {
+      type: "number",
+      direction: -1,
+      value: (work) => work.publication_year
+    },
+    "rating-asc": {
+      type: "number",
+      direction: 1,
+      value: (work) => work.personal_rating
+    },
+    "rating-desc": {
+      type: "number",
+      direction: -1,
+      value: (work) => work.personal_rating
+    },
+    "tag-asc": {
+      type: "text",
+      direction: 1,
+      value: (work) => {
+        const names = (work.tags || []).map((tag) =>
+          typeof tag === "string" ? tag : tag && tag.name
+        ).filter(Boolean).sort(collator.compare);
+        return names[0] || null;
+      }
+    }
+  };
+  const sorter = sorters[criterion] || sorters["title-asc"];
+  const getComparableValue = (work) => {
+    const value = sorter.value(work);
+    if (value === null || value === undefined || value === "") return null;
+    if (sorter.type === "date") {
+      const timestamp = Date.parse(value);
+      return Number.isFinite(timestamp) ? timestamp : null;
+    }
+    if (sorter.type === "number") {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+    return String(value);
+  };
+
+  return items
+    .map((work, index) => ({ work, index, value: getComparableValue(work) }))
+    .sort((left, right) => {
+      if (left.value === null && right.value !== null) return 1;
+      if (left.value !== null && right.value === null) return -1;
+      if (left.value !== null && right.value !== null) {
+        const comparison = sorter.type === "text"
+          ? collator.compare(left.value, right.value)
+          : left.value < right.value ? -1 : left.value > right.value ? 1 : 0;
+        if (comparison) return comparison * sorter.direction;
+      }
+      return left.index - right.index;
+    })
+    .map(({ work }) => work);
+}
+
 function renderWorks() {
   const query = $("search").value.trim().toLocaleLowerCase("fr");
   const workType = $("workTypeFilter").value;
   const priority = $("priorityFilter").value;
 
-  const filtered = works.filter((work) => {
+  const filtered = sortWorks(works.filter((work) => {
     const matchesQuery =
       work.title.toLocaleLowerCase("fr").includes(query) ||
       work.authors.some((author) =>
@@ -945,7 +1059,7 @@ function renderWorks() {
     const matchesPriority =
       priority === "all" || String(work.is_priority) === priority;
     return matchesQuery && matchesType && matchesPriority;
-  });
+  }), $("workSort").value);
 
   $("workCount").textContent =
     `${filtered.length} œuvre${filtered.length > 1 ? "s" : ""}`;
@@ -1727,7 +1841,7 @@ document.addEventListener("keydown", async (event) => {
   }
 });
 
-["search", "workTypeFilter", "priorityFilter"].forEach((id) => {
+["search", "workTypeFilter", "priorityFilter", "workSort"].forEach((id) => {
   $(id).addEventListener("input", renderWorks);
   $(id).addEventListener("change", renderWorks);
 });

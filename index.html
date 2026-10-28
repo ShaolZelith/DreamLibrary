@@ -56,7 +56,28 @@
             <option value="true">Prioritaires</option>
             <option value="false">Non prioritaires</option>
           </select>
+
+          <label class="sort-control" for="workSort">
+            <span>Trier par</span>
+            <select id="workSort" aria-describedby="sortHelp">
+              <option value="title-asc">Titre : A → Z</option>
+              <option value="title-desc">Titre : Z → A</option>
+              <option value="author-asc">Auteur : A → Z</option>
+              <option value="author-desc">Auteur : Z → A</option>
+              <option value="added-desc">Date d’ajout : récent → ancien</option>
+              <option value="added-asc">Date d’ajout : ancien → récent</option>
+              <option value="publication-asc">Date de publication : ancienne → récente</option>
+              <option value="publication-desc">Date de publication : récente → ancienne</option>
+              <option value="rating-desc">Note personnelle : meilleure → moins bonne</option>
+              <option value="rating-asc">Note personnelle : moins bonne → meilleure</option>
+              <option value="tag-asc">Genre ou catégorie : A → Z</option>
+            </select>
+          </label>
         </div>
+        <p id="sortHelp" class="sort-help">
+          Plusieurs auteurs : le premier selon l’ordre enregistré. Plusieurs éditions : l’année la plus ancienne.
+          Plusieurs notes : celle de la session notée la plus récemment créée. Plusieurs tags : le premier nom alphabétique.
+        </p>
 
         <p id="statusMessage" role="status">Chargement de la bibliothèque…</p>
         <div id="workGrid" class="book-grid"></div>
