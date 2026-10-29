@@ -523,7 +523,14 @@ test("settings list tags with exact associated-work counts and searchable names 
   assert.equal(filterTags(tags, "absent").length, 0);
   assert.match(html, /id="settingsButton"[^>]*>Paramètres/);
   assert.match(html, /id="settingsPage"/);
-  assert.equal((html.match(/class="settings-category"/g) || []).length, 1);
+  assert.match(html, /<details id="tagSettingsSection" class="settings-category">/);
+  assert.doesNotMatch(html, /<details id="tagSettingsSection" class="settings-category" open>/);
+  assert.match(html, /<summary class="settings-category-heading">[\s\S]*Gestion des tags[\s\S]*<span class="settings-disclosure-icon"/);
+  assert.match(html, /<div class="settings-category-content">[\s\S]*id="tagSettingsSearch"[\s\S]*id="settingsTagList"/);
+  assert.match(stylesheet, /\.settings-category\[open\] \.settings-disclosure-icon\s*\{\s*transform: rotate\(225deg\)/);
+  assert.match(stylesheet, /\.settings-disclosure-icon\s*\{[^}]*transform: rotate\(45deg\)/);
+  assert.match(stylesheet, /\.settings-category-heading:focus-visible/);
+  assert.match(functionBlock("openSettings"), /if \(\$\("settingsPage"\)\.classList\.contains\("hidden"\)\)\s*\{\s*\$\("tagSettingsSection"\)\.open = false;/);
 });
 
 test("tag renaming preserves associations and rejects duplicate names in a category", () => {
@@ -1096,6 +1103,26 @@ test("sorting is applied after current filters without reloading the library", (
   );
   const sortOptions = html.slice(html.indexOf('id="workSort"'), html.indexOf("</select>", html.indexOf('id="workSort"')));
   assert.equal((sortOptions.match(/<option\b/g) || []).length, 11);
+});
+
+test("all six work filters have visible labels within the existing grid controls", () => {
+  const filters = html.slice(html.indexOf('<div class="filters">'), html.indexOf('<p id="statusMessage"'));
+  for (const [id, label] of [
+    ["search", "Recherche"],
+    ["workTypeFilter", "Type d’œuvre"],
+    ["priorityFilter", "Priorité"],
+    ["ownershipFilter", "Possession"],
+    ["readingStatusFilter", "État de lecture"],
+    ["workSort", "Trier par"],
+  ]) {
+    assert.match(
+      filters,
+      new RegExp(`<label class="(?:filter-control|sort-control)" for="${id}">\\s*<span>${label}</span>[\\s\\S]*?id="${id}"`),
+      id,
+    );
+  }
+  assert.match(stylesheet, /\.filters\s*\{\s*display: grid;\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(stylesheet, /\.filters\s*\{\s*grid-template-columns: 1fr/);
 });
 
 test("possession and reading filters expose the persisted nullable work flags", () => {

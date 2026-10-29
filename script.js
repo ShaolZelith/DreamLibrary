@@ -606,6 +606,9 @@ async function openSettings() {
   if ($("workForm") && !confirm("Abandonner les modifications non enregistrées ?")) return;
   if ($("workForm")) closeWorkDetails();
 
+  if ($("settingsPage").classList.contains("hidden")) {
+    $("tagSettingsSection").open = false;
+  }
   $("libraryPage").classList.add("hidden");
   $("settingsPage").classList.remove("hidden");
   showTagSettingsStatus("Chargement des tags…");

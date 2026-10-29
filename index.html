@@ -46,17 +46,26 @@
         </div>
 
         <div class="filters">
-          <input id="search" type="search" placeholder="Rechercher une œuvre ou un auteur…">
+          <label class="filter-control" for="search">
+            <span>Recherche</span>
+            <input id="search" type="search" placeholder="Rechercher une œuvre ou un auteur…">
+          </label>
 
-          <select id="workTypeFilter">
-            <option value="all">Tous les types d’œuvre</option>
-          </select>
+          <label class="filter-control" for="workTypeFilter">
+            <span>Type d’œuvre</span>
+            <select id="workTypeFilter">
+              <option value="all">Tous les types d’œuvre</option>
+            </select>
+          </label>
 
-          <select id="priorityFilter">
-            <option value="all">Toutes les priorités</option>
-            <option value="true">Prioritaires</option>
-            <option value="false">Non prioritaires</option>
-          </select>
+          <label class="filter-control" for="priorityFilter">
+            <span>Priorité</span>
+            <select id="priorityFilter">
+              <option value="all">Toutes les priorités</option>
+              <option value="true">Prioritaires</option>
+              <option value="false">Non prioritaires</option>
+            </select>
+          </label>
 
           <label class="filter-control" for="ownershipFilter">
             <span>Possession</span>
@@ -112,18 +121,21 @@
           <button type="button" id="libraryButton" class="secondary-button">Retour à la bibliothèque</button>
         </div>
 
-        <section class="settings-category" aria-labelledby="tagSettingsTitle">
-          <div class="settings-category-heading">
+        <details id="tagSettingsSection" class="settings-category">
+          <summary class="settings-category-heading">
             <div>
               <h3 id="tagSettingsTitle">Gestion des tags</h3>
               <p>Consulte, recherche, renomme ou supprime définitivement les tags de la bibliothèque.</p>
             </div>
+            <span class="settings-disclosure-icon" aria-hidden="true"></span>
+          </summary>
+          <div class="settings-category-content">
+            <label for="tagSettingsSearch">Rechercher un tag</label>
+            <input id="tagSettingsSearch" type="search" placeholder="Nom ou catégorie du tag…">
+            <p id="tagSettingsStatus" class="field-status" role="status" aria-live="polite"></p>
+            <div id="settingsTagList" class="settings-tag-list" aria-live="polite"></div>
           </div>
-          <label for="tagSettingsSearch">Rechercher un tag</label>
-          <input id="tagSettingsSearch" type="search" placeholder="Nom ou catégorie du tag…">
-          <p id="tagSettingsStatus" class="field-status" role="status" aria-live="polite"></p>
-          <div id="settingsTagList" class="settings-tag-list" aria-live="polite"></div>
-        </section>
+        </details>
       </section>
     </main>
 

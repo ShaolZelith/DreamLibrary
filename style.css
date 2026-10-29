@@ -853,15 +853,52 @@ main {
 
 .settings-category {
   min-width: 0;
-  padding: clamp(18px, 3vw, 30px);
+  padding: 0 clamp(18px, 3vw, 30px);
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface);
   box-shadow: 0 5px 20px #49321a08;
 }
 
-.settings-category > label {
-  margin-top: 22px;
+.settings-category-heading {
+  min-height: 82px;
+  margin: 0 calc(-1 * clamp(18px, 3vw, 30px));
+  padding: 18px clamp(18px, 3vw, 30px);
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-category-heading::-webkit-details-marker {
+  display: none;
+}
+
+.settings-category-heading:focus-visible {
+  outline: 2px solid #c7b29f;
+  outline-offset: -3px;
+}
+
+.settings-disclosure-icon {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  margin: 7px 3px 0 0;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+}
+
+.settings-category[open] .settings-disclosure-icon {
+  transform: rotate(225deg);
+}
+
+.settings-category-content {
+  padding-bottom: clamp(18px, 3vw, 30px);
+}
+
+.settings-category-content > label {
+  margin-top: 0;
 }
 
 .settings-tag-list {
@@ -945,6 +982,11 @@ footer {
   .settings-heading,
   .settings-category-heading {
     flex-direction: column;
+  }
+
+  .settings-category-heading {
+    align-items: center;
+    flex-direction: row;
   }
 
   .settings-tag {
