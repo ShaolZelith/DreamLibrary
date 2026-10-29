@@ -826,6 +826,104 @@ main {
   text-align: center;
 }
 
+.settings-page {
+  display: grid;
+  gap: 22px;
+}
+
+.settings-heading,
+.settings-category-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.settings-heading h2,
+.settings-category-heading h3 {
+  margin: 0;
+  font-family: Georgia, serif;
+}
+
+.settings-heading p,
+.settings-category-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.settings-category {
+  min-width: 0;
+  padding: clamp(18px, 3vw, 30px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 5px 20px #49321a08;
+}
+
+.settings-category > label {
+  margin-top: 22px;
+}
+
+.settings-tag-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.settings-tag {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #fdfbf9;
+}
+
+.settings-tag-details {
+  min-width: 0;
+}
+
+.settings-tag-details strong {
+  overflow-wrap: anywhere;
+}
+
+.settings-tag-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.settings-tag-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-tag-form input {
+  min-width: 0;
+}
+
+.settings-tag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-tag-delete {
+  background: #f2e4e1;
+  color: var(--danger);
+}
+
+.settings-tag-delete:hover {
+  background: #ead4d0;
+}
+
+.settings-tag .empty-state {
+  margin: 0;
+}
+
 footer {
   padding: 22px;
   border-top: 1px solid var(--border);
@@ -842,6 +940,24 @@ footer {
 
   .header-actions {
     justify-content: flex-end;
+  }
+
+  .settings-heading,
+  .settings-category-heading {
+    flex-direction: column;
+  }
+
+  .settings-tag {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-tag-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-tag-actions button {
+    flex: 1;
   }
 
   .editor-heading {

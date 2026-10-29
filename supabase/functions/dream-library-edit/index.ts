@@ -823,7 +823,27 @@ Deno.serve(async (req) => {
         .select("*")
         .order("name", { ascending: true });
       if (error) return replyDatabaseError("tags_list", "Impossible de charger les tags", error);
-      return reply({ tags: data });
+
+      const tagCounts = await Promise.all(data.map(async (tag) => {
+        return await supabase
+          .from("work_tags")
+          .select("work_id", { count: "exact", head: true })
+          .eq("tag_id", tag.id);
+      }));
+      const failedCount = tagCounts.find((result) => result.error);
+      if (failedCount) {
+        return replyDatabaseError(
+          "tags_list",
+          "Impossible de compter les œuvres associées aux tags",
+          failedCount.error,
+        );
+      }
+      return reply({
+        tags: data.map((tag, index) => ({
+          ...tag,
+          work_count: tagCounts[index].count ?? 0,
+        })),
+      });
     }
 
     if (action === "tags_create") {
@@ -878,6 +898,84 @@ Deno.serve(async (req) => {
         return reply({ error: "La base n’a pas confirmé la création du tag" }, 500);
       }
       return reply({ tag: createdTag, created: true });
+    }
+
+    if (action === "tags_update") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (
+        typeof id !== "string" ||
+        !isUuid(id) ||
+        typeof body.name !== "string" ||
+        !body.name.trim()
+      ) {
+        return reply({ error: "Identifiant ou nom de tag invalide" }, 400);
+      }
+
+      const { data: updatedTag, error: updateError } = await supabase
+        .from("tags")
+        .update({ name: body.name.trim() })
+        .eq("id", id)
+        .select("id, name, category")
+        .maybeSingle();
+      if (updateError) {
+        if (updateError.code === "23505") {
+          return reply({
+            error: "Un tag de cette catégorie porte déjà ce nom",
+            code: updateError.code,
+          }, 409);
+        }
+        return replyDatabaseError("tags_update", "Impossible de renommer le tag", updateError);
+      }
+      if (!updatedTag) return reply({ error: "Tag introuvable" }, 404);
+      return reply({ tag: updatedTag });
+    }
+
+    if (action === "tags_delete") {
+      if (role !== "edit") {
+        return reply({ error: "Droits d’édition insuffisants" }, 403);
+      }
+      if (
+        typeof id !== "string" ||
+        !isUuid(id) ||
+        typeof body.expectedWorkCount !== "number" ||
+        !Number.isInteger(body.expectedWorkCount) ||
+        body.expectedWorkCount < 0
+      ) {
+        return reply({ error: "Identifiant de tag ou nombre d’œuvres invalide" }, 400);
+      }
+
+      const { count, error: countError } = await supabase
+        .from("work_tags")
+        .select("work_id", { count: "exact", head: true })
+        .eq("tag_id", id);
+      if (countError) {
+        return replyDatabaseError(
+          "tags_delete",
+          "Impossible de compter les œuvres associées au tag",
+          countError,
+        );
+      }
+      const workCount = count ?? 0;
+      if (workCount !== body.expectedWorkCount) {
+        return reply({
+          error: "Le nombre d’œuvres associées a changé. Vérifie le nombre actualisé avant de confirmer.",
+          work_count: workCount,
+        }, 409);
+      }
+
+      const { data: deletedTag, error: deleteError } = await supabase
+        .from("tags")
+        .delete()
+        .eq("id", id)
+        .select("id")
+        .maybeSingle();
+      if (deleteError) {
+        return replyDatabaseError("tags_delete", "Impossible de supprimer le tag", deleteError);
+      }
+      if (!deletedTag) return reply({ error: "Tag introuvable" }, 404);
+      return reply({ deleted: deletedTag.id, work_count: workCount });
     }
 
     if (action === "works_tags_set") {

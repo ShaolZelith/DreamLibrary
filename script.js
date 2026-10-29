@@ -389,6 +389,41 @@ function detailFields(record, excluded = []) {
   `).join("")}</dl>`;
 }
 
+function buildEditRequestBody(action, password, payload, id, extra = {}) {
+  return {
+    password,
+    action,
+    ...(id ? { id } : {}),
+    ...(payload ? (action.startsWith("works_") ? { work: payload } : { book: payload }) : {}),
+    ...extra
+  };
+}
+
+function editRequestErrorMessage(action, status, result, responseText) {
+  const message = typeof result.error === "string"
+    ? result.error
+    : typeof result.message === "string"
+    ? result.message
+    : `Erreur serveur (${status})`;
+  if (action === "tags_delete" && message === "Action inconnue") {
+    return `La fonction Edge déployée ne reconnaît pas l’action tags_delete. ` +
+      `Déploie la version locale de dream-library-edit pour activer la suppression ` +
+      `(HTTP ${status}).`;
+  }
+  const detailParts = [
+    typeof result.details === "string" ? result.details : "",
+    typeof result.code === "string" ? `code ${result.code}` : "",
+    typeof result.hint === "string" ? `indice : ${result.hint}` : "",
+  ].filter(Boolean);
+  const rawBody = responseText.trim();
+  const detail = detailParts.length
+    ? detailParts.join(" — ")
+    : rawBody && message === `Erreur serveur (${status})`
+    ? rawBody
+    : "";
+  return `${action} : ${message} (HTTP ${status})${detail ? ` — ${detail}` : ""}`;
+}
+
 async function editRequest(action, password = accessPassword, payload, id, extra = {}) {
   let response;
   try {
@@ -398,13 +433,7 @@ async function editRequest(action, password = accessPassword, payload, id, extra
         "Content-Type": "application/json",
         apikey: SUPABASE_KEY
       },
-      body: JSON.stringify({
-        password,
-        action,
-        ...(id ? { id } : {}),
-        ...(payload ? (action.startsWith("works_") ? { work: payload } : { book: payload }) : {}),
-        ...extra
-      })
+      body: JSON.stringify(buildEditRequestBody(action, password, payload, id, extra))
     });
   } catch (error) {
     throw new Error(`Échec réseau pour l’action ${action} : ${error.message}`);
@@ -416,18 +445,16 @@ async function editRequest(action, password = accessPassword, payload, id, extra
     try {
       result = JSON.parse(responseText);
     } catch {
+      const bodyPreview = responseText.trim().slice(0, 1000);
       throw new Error(
-        `Réponse non JSON pour l’action ${action} (HTTP ${response.status}).`
+        `Réponse non JSON pour l’action ${action} (HTTP ${response.status})` +
+        `${bodyPreview ? ` : ${bodyPreview}` : "."}`
       );
     }
   }
 
   if (!response.ok) {
-    const message = result.error || `Erreur serveur (${response.status})`;
-    const detail = result.details || result.code;
-    throw new Error(
-      `${message} (HTTP ${response.status})${detail ? ` — ${detail}` : ""}`
-    );
+    throw new Error(editRequestErrorMessage(action, response.status, result, responseText));
   }
 
   return result;
@@ -494,7 +521,109 @@ async function loadTags() {
   if (!Array.isArray(result.tags)) {
     throw new Error("Réponse invalide : la liste des tags est absente.");
   }
-  availableTags = result.tags;
+  const workCounts = getTagWorkCounts(works);
+  availableTags = result.tags.map((tag) => ({
+    ...tag,
+    work_count: Number.isInteger(tag.work_count) && tag.work_count >= 0
+      ? tag.work_count
+      : workCounts.get(tag.id) || 0,
+  }));
+}
+
+function getTagWorkCounts(items) {
+  const counts = new Map();
+  items.forEach((work) => {
+    const tagIds = new Set((work.tags || []).map((tag) => tag.id).filter(Boolean));
+    tagIds.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
+  });
+  return counts;
+}
+
+function filterSettingsTags(tags, query) {
+  const normalizedQuery = query.trim().toLocaleLowerCase("fr");
+  if (!normalizedQuery) return tags;
+  return tags.filter((tag) => {
+    const category = DETAIL_VALUE_LABELS.category[tag.category] || tag.category;
+    return `${tag.name} ${tag.category} ${category}`
+      .toLocaleLowerCase("fr")
+      .includes(normalizedQuery);
+  });
+}
+
+function renderSettingsTags() {
+  const container = $("settingsTagList");
+  if (!availableTags.length) {
+    container.innerHTML = '<p class="empty-state">Aucun tag enregistré.</p>';
+    return;
+  }
+
+  const tags = filterSettingsTags(availableTags, $("tagSettingsSearch").value);
+  if (!tags.length) {
+    container.innerHTML = '<p class="empty-state">Aucun tag ne correspond à la recherche.</p>';
+    return;
+  }
+
+  container.innerHTML = tags.map((tag) => {
+    const category = DETAIL_VALUE_LABELS.category[tag.category] || tag.category;
+    const countLabel = `${tag.work_count} livre${tag.work_count > 1 ? "s" : ""} associé${tag.work_count > 1 ? "s" : ""}`;
+    return `
+      <article class="settings-tag">
+        <div class="settings-tag-details">
+          <strong>${escapeHTML(tag.name)}</strong>
+          <span class="settings-tag-meta">${escapeHTML(category)} · ${countLabel}</span>
+        </div>
+        <form class="settings-tag-form" data-rename-tag="${escapeHTML(tag.id)}">
+          <input name="tagName" value="${escapeHTML(tag.name)}" aria-label="Nouveau nom pour ${escapeHTML(tag.name)}" required>
+          <div class="settings-tag-actions">
+            <button type="submit" class="secondary-button">Renommer</button>
+            <button type="button" class="settings-tag-delete" data-delete-tag="${escapeHTML(tag.id)}">Supprimer</button>
+          </div>
+        </form>
+      </article>
+    `;
+  }).join("");
+}
+
+function showTagSettingsStatus(message, isError = false) {
+  const status = $("tagSettingsStatus");
+  status.textContent = message;
+  status.style.color = isError ? "#a34848" : "";
+}
+
+async function refreshTagSettings(refreshSelectedWork = false) {
+  const tagsLoaded = loadTags();
+  const worksLoaded = await loadWorks();
+  await tagsLoaded;
+  renderSettingsTags();
+  if (worksLoaded && refreshSelectedWork && selectedWorkId) {
+    return Boolean(await openWorkDetails(selectedWorkId));
+  }
+  return worksLoaded;
+}
+
+async function openSettings() {
+  if (accessLevel !== "edit") return;
+  if ($("workForm") && !confirm("Abandonner les modifications non enregistrées ?")) return;
+  if ($("workForm")) closeWorkDetails();
+
+  $("libraryPage").classList.add("hidden");
+  $("settingsPage").classList.remove("hidden");
+  showTagSettingsStatus("Chargement des tags…");
+  try {
+    const worksLoaded = await refreshTagSettings();
+    showTagSettingsStatus(worksLoaded
+      ? ""
+      : "Les tags sont chargés, mais la bibliothèque n’a pas pu être actualisée.");
+  } catch (error) {
+    showTagSettingsStatus(error.message || "Impossible de charger les tags.", true);
+    console.error("Loading tag settings failed", error);
+  }
+}
+
+function openLibrary() {
+  $("settingsPage").classList.add("hidden");
+  $("libraryPage").classList.remove("hidden");
+  renderWorks();
 }
 
 function renderSelectedAuthors() {
@@ -1523,12 +1652,15 @@ function beginModeSwitch(target) {
 function applyAccessMode() {
   const isEditor = accessLevel === "edit";
   const wasEditing = Boolean($("workForm"));
+  $("settingsButton").classList.toggle("hidden", !isEditor);
   $("editModeButton").textContent = isEditor
     ? "Passer en mode lecture"
     : "Passer en mode édition";
   $("addWorkButton").classList.toggle("hidden", !isEditor);
 
   if (!isEditor) {
+    $("settingsPage").classList.add("hidden");
+    $("libraryPage").classList.remove("hidden");
     authorListRequestId += 1;
     availableAuthors = [];
     selectedAuthorSuggestion = null;
@@ -1559,6 +1691,8 @@ function logout() {
   selectedWorkId = "";
   selectedAuthors = [];
   $("appContent").classList.add("hidden");
+  $("settingsPage").classList.add("hidden");
+  $("libraryPage").classList.remove("hidden");
   $("loginPage").classList.remove("hidden");
   $("loginPanel").classList.remove("hidden");
   $("loginTitle").textContent = "Accès à Dream Library";
@@ -1577,6 +1711,99 @@ function logout() {
 
 $("editModeButton").addEventListener("click", () => {
   beginModeSwitch(accessLevel === "edit" ? "view" : "edit");
+});
+
+$("settingsButton").addEventListener("click", openSettings);
+$("libraryButton").addEventListener("click", openLibrary);
+$("tagSettingsSearch").addEventListener("input", renderSettingsTags);
+
+$("settingsTagList").addEventListener("submit", async (event) => {
+  const form = event.target.closest("[data-rename-tag]");
+  if (!form || accessLevel !== "edit") return;
+  event.preventDefault();
+
+  const id = form.dataset.renameTag;
+  const input = form.querySelector("[name='tagName']");
+  const name = input.value.trim();
+  if (!name) {
+    showTagSettingsStatus("Saisis un nom de tag.", true);
+    input.focus();
+    return;
+  }
+
+  const button = form.querySelector('[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await editRequest(
+      "tags_update",
+      accessPassword,
+      null,
+      id,
+      { name },
+    );
+    if (!result.tag || result.tag.id !== id || result.tag.name !== name) {
+      throw new Error("La fonction n’a pas confirmé le renommage du tag.");
+    }
+
+    const worksLoaded = await refreshTagSettings(true);
+    showTagSettingsStatus(worksLoaded
+      ? "Tag renommé."
+      : "Tag renommé, mais la bibliothèque n’a pas pu être actualisée.", !worksLoaded);
+  } catch (error) {
+    showTagSettingsStatus(error.message || "Impossible de renommer le tag.", true);
+    console.error("tags_update failed", error);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("settingsTagList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-delete-tag]");
+  if (!button || accessLevel !== "edit") return;
+
+  const tag = availableTags.find((item) => item.id === button.dataset.deleteTag);
+  if (!tag) {
+    showTagSettingsStatus("Ce tag n’est plus disponible. Actualise les paramètres.", true);
+    return;
+  }
+  const workCount = tag.work_count;
+  const workLabel = `${workCount} livre${workCount > 1 ? "s" : ""}`;
+  if (!confirm(
+    `Supprimer définitivement le tag « ${tag.name} » ? ` +
+    `Son association sera supprimée de ${workLabel}. Les livres et leurs autres données seront conservés.`,
+  )) return;
+
+  button.disabled = true;
+  try {
+    const result = await editRequest(
+      "tags_delete",
+      accessPassword,
+      null,
+      tag.id,
+      { expectedWorkCount: workCount },
+    );
+    if (result.deleted !== tag.id || result.work_count !== workCount) {
+      throw new Error("La fonction n’a pas confirmé la suppression du tag et de ses associations.");
+    }
+
+    const worksLoaded = await refreshTagSettings(true);
+    showTagSettingsStatus(worksLoaded
+      ? `Tag supprimé ; son association a été retirée de ${workLabel}.`
+      : `Tag supprimé de ${workLabel}, mais la bibliothèque n’a pas pu être actualisée.`,
+    !worksLoaded);
+  } catch (error) {
+    let message = error.message || "Impossible de supprimer le tag.";
+    try {
+      await refreshTagSettings();
+      message += " L’état des tags et des livres a été actualisé.";
+    } catch (refreshError) {
+      message += ` L’état n’a pas pu être actualisé : ${refreshError.message}`;
+    }
+    showTagSettingsStatus(message, true);
+    console.error("tags_delete failed", error);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $("addWorkButton").addEventListener("click", beginCreateWork);

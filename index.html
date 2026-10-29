@@ -29,13 +29,14 @@
         <p id="welcomeProverb"></p>
       </div>
       <div class="header-actions">
+        <button type="button" id="settingsButton" class="secondary-button hidden">Paramètres</button>
         <button id="editModeButton">Passer en mode édition</button>
         <button type="button" id="logoutButton">Se déconnecter</button>
       </div>
     </header>
 
     <main>
-      <section class="library">
+      <section id="libraryPage" class="library">
         <div class="library-heading">
           <h2>Mes œuvres</h2>
           <div class="library-heading-actions">
@@ -100,6 +101,29 @@
         <p id="statusMessage" role="status">Chargement de la bibliothèque…</p>
         <div id="workGrid" class="book-grid"></div>
         <section id="workDetails" class="work-details hidden" aria-live="polite"></section>
+      </section>
+
+      <section id="settingsPage" class="settings-page hidden" aria-labelledby="settingsTitle">
+        <div class="settings-heading">
+          <div>
+            <h2 id="settingsTitle">Paramètres</h2>
+            <p>Gère les informations partagées dans ta bibliothèque.</p>
+          </div>
+          <button type="button" id="libraryButton" class="secondary-button">Retour à la bibliothèque</button>
+        </div>
+
+        <section class="settings-category" aria-labelledby="tagSettingsTitle">
+          <div class="settings-category-heading">
+            <div>
+              <h3 id="tagSettingsTitle">Gestion des tags</h3>
+              <p>Consulte, recherche, renomme ou supprime définitivement les tags de la bibliothèque.</p>
+            </div>
+          </div>
+          <label for="tagSettingsSearch">Rechercher un tag</label>
+          <input id="tagSettingsSearch" type="search" placeholder="Nom ou catégorie du tag…">
+          <p id="tagSettingsStatus" class="field-status" role="status" aria-live="polite"></p>
+          <div id="settingsTagList" class="settings-tag-list" aria-live="polite"></div>
+        </section>
       </section>
     </main>
 

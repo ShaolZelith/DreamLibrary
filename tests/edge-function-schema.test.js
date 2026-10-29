@@ -487,6 +487,199 @@ test("tag updates insert and delete through the confirmed join table", () => {
   assert.match(setTags, /\.from\("tags"\)\.select\("id"\)\.in\("id", tagIds\)/);
 });
 
+test("settings list tags with exact associated-work counts and searchable names or categories", () => {
+  const listTags = actionBlock("tags_list");
+  assert.match(listTags, /\.from\("tags"\)\s*\.select\("\*"\)/);
+  assert.match(listTags, /\.from\("work_tags"\)\s*\.select\("work_id", \{ count: "exact", head: true \}\)\s*\.eq\("tag_id", tag\.id\)/);
+  assert.match(listTags, /work_count: tagCounts\[index\]\.count \?\? 0/);
+
+  const counts = runInNewContext(
+    `${functionBlock("getTagWorkCounts")}; getTagWorkCounts`,
+  )([
+    { tags: [{ id: "shared" }, { id: "unique-a" }] },
+    { tags: [{ id: "shared" }, { id: "shared" }] },
+    { tags: [{ id: "unique-b" }] },
+  ]);
+  assert.equal(counts.get("shared"), 2);
+  assert.equal(counts.get("unique-a"), 1);
+  assert.equal(counts.get("unique-b"), 1);
+
+  const labels = runInNewContext(
+    `${frontend.slice(
+      frontend.indexOf("const DETAIL_VALUE_LABELS"),
+      frontend.indexOf("\nconst $"),
+    )}; DETAIL_VALUE_LABELS`,
+  );
+  const filterTags = runInNewContext(
+    `${functionBlock("filterSettingsTags")}; filterSettingsTags`,
+    { DETAIL_VALUE_LABELS: labels },
+  );
+  const tags = [
+    { name: "Fantasy", category: "genre" },
+    { name: "Voyage", category: "theme" },
+  ];
+  assert.equal(filterTags(tags, "fant").length, 1);
+  assert.equal(filterTags(tags, "thème").length, 1);
+  assert.equal(filterTags(tags, "absent").length, 0);
+  assert.match(html, /id="settingsButton"[^>]*>Paramètres/);
+  assert.match(html, /id="settingsPage"/);
+  assert.equal((html.match(/class="settings-category"/g) || []).length, 1);
+});
+
+test("tag renaming preserves associations and rejects duplicate names in a category", () => {
+  const updateTag = actionBlock("tags_update");
+  assert.match(updateTag, /role !== "edit"/);
+  assert.match(updateTag, /typeof body\.name !== "string"/);
+  assert.match(updateTag, /\.from\("tags"\)\s*\.update\(\{ name: body\.name\.trim\(\) \}\)\s*\.eq\("id", id\)/);
+  assert.match(updateTag, /updateError\.code === "23505"/);
+  assert.doesNotMatch(updateTag, /\.from\("work_tags"\)/);
+});
+
+test("tag deletion request matches the Edge Function action, UUID, and count validation", () => {
+  const tagId = "3b8c2f04-a8cf-4de5-86fb-0e305680086a";
+  const buildBody = runInNewContext(
+    `${functionBlock("buildEditRequestBody")}; buildEditRequestBody`,
+  );
+  const request = buildBody(
+    "tags_delete",
+    "edit-password",
+    null,
+    tagId,
+    { expectedWorkCount: 2 },
+  );
+  assert.equal(JSON.stringify(request), JSON.stringify({
+    password: "edit-password",
+    action: "tags_delete",
+    id: tagId,
+    expectedWorkCount: 2,
+  }));
+  assert.equal(request.action, "tags_delete");
+  assert.equal(typeof request.id, "string");
+  assert.equal(typeof request.expectedWorkCount, "number");
+
+  const deleteTag = actionBlock("tags_delete");
+  assert.match(deleteTag, /role !== "edit"/);
+  assert.match(deleteTag, /typeof body\.expectedWorkCount !== "number"/);
+  assert.match(deleteTag, /typeof id !== "string"\s*\|\|\s*!isUuid\(id\)/);
+  assert.match(deleteTag, /\.from\("work_tags"\)\s*\.select\("work_id", \{ count: "exact", head: true \}\)\s*\.eq\("tag_id", id\)/);
+  assert.match(deleteTag, /workCount !== body\.expectedWorkCount/);
+  assert.match(deleteTag, /\.from\("tags"\)\s*\.delete\(\)\s*\.eq\("id", id\)/);
+  assert.doesNotMatch(deleteTag, /\.from\("works"\)/);
+  assert.match(constraintsSnapshot, /work_tags_tag_id_fkey.*REFERENCES tags\(id\) ON DELETE CASCADE/);
+  assert.match(frontend, /Supprimer définitivement le tag/);
+  assert.match(frontend, /expectedWorkCount: workCount/);
+});
+
+test("tag deletion removes links for multiple works while preserving works and their other tags", async () => {
+  const tagId = "3b8c2f04-a8cf-4de5-86fb-0e305680086a";
+  const otherTagId = "4c9d3f15-b9d0-5ef6-97fc-1f416791097b";
+  const state = {
+    tags: [{ id: tagId }, { id: otherTagId }],
+    works: [{ id: "work-1" }, { id: "work-2" }],
+    links: [
+      { work_id: "work-1", tag_id: tagId },
+      { work_id: "work-1", tag_id: otherTagId },
+      { work_id: "work-2", tag_id: tagId },
+      { work_id: "work-2", tag_id: otherTagId },
+    ],
+  };
+  const calls = [];
+
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.operation = "select";
+      this.filters = [];
+    }
+
+    select(columns, options) {
+      calls.push(["select", this.table, columns, options]);
+      return this;
+    }
+
+    eq(column, value) {
+      calls.push(["eq", this.table, column, value]);
+      this.filters.push([column, value]);
+      return this;
+    }
+
+    delete() {
+      this.operation = "delete";
+      calls.push(["delete", this.table]);
+      return this;
+    }
+
+    async maybeSingle() {
+      const id = this.filters.find(([column]) => column === "id")?.[1];
+      const tagIndex = state.tags.findIndex((tag) => tag.id === id);
+      if (tagIndex < 0) return { data: null, error: null };
+      state.tags.splice(tagIndex, 1);
+      state.links = state.links.filter((link) => link.tag_id !== id);
+      return { data: { id }, error: null };
+    }
+
+    then(resolve, reject) {
+      if (this.table !== "work_tags" || this.operation !== "select") {
+        return Promise.reject(new Error("Unexpected query")).then(resolve, reject);
+      }
+      const tagIdFilter = this.filters.find(([column]) => column === "tag_id")?.[1];
+      return Promise.resolve({
+        count: state.links.filter((link) => link.tag_id === tagIdFilter).length,
+        error: null,
+      }).then(resolve, reject);
+    }
+  }
+
+  const context = {
+    action: "tags_delete",
+    body: { expectedWorkCount: 2 },
+    id: tagId,
+    role: "edit",
+    isUuid: (value) => /^[0-9a-f-]{36}$/.test(value),
+    supabase: {
+      from(table) {
+        calls.push(["from", table]);
+        return new Query(table);
+      },
+    },
+    reply: (body, status = 200) => ({ body, status }),
+    replyDatabaseError: (_action, message, error) => ({ body: { error: message, details: error }, status: 400 }),
+  };
+  const result = await runInNewContext(
+    `(async function() { ${actionBlock("tags_delete")} })()`,
+    context,
+  );
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.body)), {
+    deleted: tagId,
+    work_count: 2,
+  });
+  assert.deepEqual(state.works, [{ id: "work-1" }, { id: "work-2" }]);
+  assert.deepEqual(state.tags, [{ id: otherTagId }]);
+  assert.deepEqual(state.links, [
+    { work_id: "work-1", tag_id: otherTagId },
+    { work_id: "work-2", tag_id: otherTagId },
+  ]);
+  assert.ok(calls.some((call) => call[0] === "eq" && call[1] === "work_tags" && call[2] === "tag_id" && call[3] === tagId));
+  assert.ok(calls.some((call) => call[0] === "eq" && call[1] === "tags" && call[2] === "id" && call[3] === tagId));
+});
+
+test("Edge Function errors retain server messages, codes, hints, and non-JSON bodies", () => {
+  const formatMessage = runInNewContext(
+    `${functionBlock("editRequestErrorMessage")}; editRequestErrorMessage`,
+  );
+  assert.match(formatMessage("tags_delete", 400, {
+    error: "Action inconnue",
+  }, '{"error":"Action inconnue"}'), /fonction Edge déployée ne reconnaît pas l’action tags_delete.*HTTP 400/);
+  assert.match(formatMessage("tags_delete", 400, {
+    message: "permission denied",
+    code: "42501",
+    hint: "verify function credentials",
+  }, ""), /permission denied \(HTTP 400\).*code 42501.*verify function credentials/);
+  assert.match(frontend, /bodyPreview = responseText\.trim\(\)\.slice\(0, 1000\)/);
+});
+
 test("tag creation validates edit access and reuses the unique category/name pair", () => {
   const createTag = actionBlock("tags_create");
   assert.match(createTag, /role !== "edit"/);
@@ -507,6 +700,8 @@ test("every write action requires edit role", () => {
   for (const action of [
     "authors_resolve",
     "tags_create",
+    "tags_update",
+    "tags_delete",
     "works_tags_set",
     "works_related_set",
     "works_create",
