@@ -3,6 +3,29 @@ const SUPABASE_KEY = "sb_publishable_wyI9gQlY6JxcZ6EskKxCCQ_Of9BZBZF";
 const EDIT_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/dream-library-edit`;
 const DEFAULT_COVER_IMAGE = "./assets/default-book-cover.png";
 const RICH_TEXT_PREFIX = "dream-library-rich-text:v1\n";
+const WELCOME_PROVERB_STORAGE_KEY = "dream-library-welcome-proverb:v1";
+const WELCOME_PROVERBS = [
+  "Quand le vent souffle fort, la valise danse et le kebab s’incline.",
+  "Si le cornichon connaît la route, c’est que le GPS a mangé la carte.",
+  "Quand la lune est pleine, le grille-pain devient maire du village.",
+  "Qui pèle une banane dans le noir finit par saluer un meuble.",
+  "Lorsque le pigeon éternue, trois chaussettes changent de continent.",
+  "Si le fromage tombe à gauche, c’est que la droite a pris sa journée.",
+  "Quand le lama médite, la brouette remet sa vie en question.",
+  "Un kebab sans sauce est comme un lundi sans chaise : parfaitement suspect.",
+  "Qui parle aux patates récolte le silence des courgettes.",
+  "Quand le plafond est bas, les girafes pensent en italique.",
+  "Si la fourchette hésite, c’est que la soupe a menti.",
+  "Le sage ne court jamais après un yaourt qui connaît le karaté.",
+  "Quand trois escargots font la course, le dernier arrive hier.",
+  "Si le canard porte une cravate, méfie-toi des imprimantes.",
+  "Le vent tourne, la chaise grince et le saucisson vote blanc.",
+  "Quand le kebab s’incline, même les frites gardent le silence.",
+  "Qui cherche midi à quatorze heures finit par commander une pizza.",
+  "Si le parapluie ouvre la bouche, ne confie jamais tes secrets au grille-pain.",
+  "La sagesse vient avec l’âge, mais le brocoli reste un suspect.",
+  "Quand le destin frappe à la porte, vérifie d’abord si c’est le livreur."
+];
 const RICH_TEXT_TAGS = new Set([
   "b", "strong", "i", "em", "u", "s", "strike", "br", "p", "ul", "ol", "li"
 ]);
@@ -54,6 +77,33 @@ const DETAIL_VALUE_LABELS = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+function chooseWelcomeProverb() {
+  let storedIndex;
+  try {
+    storedIndex = window.sessionStorage.getItem(WELCOME_PROVERB_STORAGE_KEY);
+  } catch (error) {
+    console.warn("Session storage is unavailable; using an in-memory welcome proverb.", error);
+    return WELCOME_PROVERBS[Math.floor(Math.random() * WELCOME_PROVERBS.length)];
+  }
+
+  if (storedIndex !== null) {
+    const index = Number(storedIndex);
+    if (Number.isInteger(index) && index >= 0 && index < WELCOME_PROVERBS.length) {
+      return WELCOME_PROVERBS[index];
+    }
+  }
+
+  const index = Math.floor(Math.random() * WELCOME_PROVERBS.length);
+  try {
+    window.sessionStorage.setItem(WELCOME_PROVERB_STORAGE_KEY, String(index));
+  } catch (error) {
+    console.warn("Could not save the welcome proverb for this session.", error);
+  }
+  return WELCOME_PROVERBS[index];
+}
+
+$("welcomeProverb").textContent = chooseWelcomeProverb();
 
 let works = [];
 let selectedWorkId = "";
