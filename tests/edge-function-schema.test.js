@@ -714,6 +714,42 @@ test("author autocomplete handles keyboard selection, escape, and outside clicks
   assert.match(frontend, /if \(event\.target\.id !== "authorName"\) return;\s*selectedAuthorSuggestion = null;\s*updateAuthorSuggestions/);
 });
 
+test("resizing preserves an open work form without changing detail-panel positioning", () => {
+  const positionDetails = functionBlock("positionWorkDetailsInGrid");
+  const panelActions = [];
+  const panel = {
+    classList: {
+      add: (...classes) => panelActions.push(["add", ...classes]),
+      remove: (...classes) => panelActions.push(["remove", ...classes]),
+    },
+  };
+  const form = {};
+  const grid = {
+    querySelectorAll: () => [],
+    after: (element) => panelActions.push(["after", element]),
+  };
+  const position = runInNewContext(
+    `${positionDetails}; positionWorkDetailsInGrid`,
+    {
+      $: (id) => id === "workForm" ? form : id === "workDetails" ? panel : grid,
+      selectedWorkId: "",
+    },
+  );
+
+  position();
+  assert.deepEqual(panelActions, []);
+
+  const positionWithoutForm = runInNewContext(
+    `${positionDetails}; positionWorkDetailsInGrid`,
+    {
+      $: (id) => id === "workForm" ? null : id === "workDetails" ? panel : grid,
+      selectedWorkId: "",
+    },
+  );
+  positionWithoutForm();
+  assert.deepEqual(panelActions, [["add", "hidden"], ["after", panel]]);
+});
+
 test("tag editor offers exactly the four confirmed categories", () => {
   const tagEditor = html.slice(html.indexOf('id="newTagCategory"'), html.indexOf("</select>", html.indexOf('id="newTagCategory"')));
   assert.match(tagEditor, /value="genre">Genre/);
@@ -1063,7 +1099,7 @@ test("details panel follows the selected card row across grid layouts", () => {
   const position = runInNewContext(
     `${functionBlock("findLastCardInRow")}\n${placement}; positionWorkDetailsInGrid`,
     {
-    $: (id) => id === "workGrid" ? grid : panel,
+    $: (id) => id === "workForm" ? null : id === "workGrid" ? grid : panel,
     get selectedWorkId() { return selectedWorkId; }
     },
   );

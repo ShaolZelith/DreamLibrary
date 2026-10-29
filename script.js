@@ -1112,6 +1112,8 @@ function findLastCardInRow(cards, selectedCard) {
 }
 
 function positionWorkDetailsInGrid() {
+  if ($("workForm")) return;
+
   const grid = $("workGrid");
   const panel = $("workDetails");
   const cards = [...grid.querySelectorAll("[data-work-select]")];
